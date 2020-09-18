@@ -24,7 +24,7 @@ struct wd_dh_sess_setup {
 	__u16 key_bits; /* DH key bites */
 	bool is_g2; /* is g2 mode or not */
 	__u8 numa_id; /* numa id binded by sess thread */
-	__u8 mode; /* rsa sync or async mode, denoted by enum wd_ctx_mode */
+	__u8 mode; /* sync or async mode, denoted by enum wd_ctx_mode */
 };
 
 struct wd_dh_req {
@@ -49,13 +49,13 @@ struct wd_dh_req {
 
 bool wd_dh_is_g2(handle_t sess);
 int wd_dh_key_bits(handle_t sess);
-int wd_set_dh_g(handle_t sess, struct wd_dtb *g);
-void wd_get_dh_g(handle_t sess, struct wd_dtb **g);
+int wd_dh_set_g(handle_t sess, struct wd_dtb *g);
+void wd_dh_get_g(handle_t sess, struct wd_dtb **g);
 handle_t wd_dh_alloc_sess(struct wd_dh_sess_setup *setup);
 void wd_dh_free_sess(handle_t sess);
 int wd_do_dh_async(handle_t sess, struct wd_dh_req *req);
 int wd_do_dh_sync(handle_t sess, struct wd_dh_req *req);
-int wd_dh_poll_ctx(handle_t ctx, __u32 expt, __u32 *count);
+int wd_dh_poll_ctx(__u32 pos, __u32 expt, __u32 *count);
 int wd_dh_poll(__u32 expt, __u32 *count);
 int wd_dh_init(struct wd_ctx_config *config, struct wd_sched *sched);
 void wd_dh_uninit(void);

@@ -299,7 +299,7 @@ int wd_dh_init(struct wd_ctx_config *config, struct wd_sched *sched)
 
 	if (!wd_is_sva(config->ctxs[0].ctx)) {
 		WD_ERR("no sva, do not dh init\n");
-		return 0;
+		return -WD_EINVAL;
 	}
 
 	ret = init_global_ctx_setting(config);
@@ -384,9 +384,12 @@ static int fill_dh_msg(struct wd_dh_msg *msg, struct wd_dh_req *req,
 	if (req->op_type == WD_DH_PHASE1) {
 		msg->g = (__u8 *)sess->g.data;
 		msg->gbytes = sess->g.dsize;
-	} else {
+	} else if (req->op_type == WD_DH_PHASE2) {
 		msg->g = (__u8 *)req->pv;
 		msg->gbytes = req->pvbytes;
+	} else {
+		WD_ERR("op_type=%d error!\n", req->op_type);
+		return -EINVAL;
 	}
 
 	if (!msg->g) {
@@ -447,22 +450,22 @@ static int dh_recv_sync(handle_t ctx, struct wd_dh_msg *msg)
 	return GET_NEGATIVE(req->status);
 }
 
-int wd_do_dh_sync(handle_t h_sess, struct wd_dh_req *req)
+int wd_do_dh_sync(handle_t sess, struct wd_dh_req *req)
 {
 	struct wd_ctx_config_internal *config = &wd_dh_setting.config;
 	handle_t h_sched_ctx = wd_dh_setting.sched.h_sched_ctx;
-	struct wd_dh_sess *sess = (struct wd_dh_sess *)h_sess;
+	struct wd_dh_sess *sess_t = (struct wd_dh_sess *)sess;
 	struct wd_ctx_internal *ctx;
 	struct wd_dh_msg msg;
 	__u32 idx;
 	int ret;
 
-	if (unlikely(!h_sess || !req)) {
+	if (unlikely(!sess || !req)) {
 		WD_ERR("input param NULL!\n");
 		return -WD_EINVAL;
 	}
 
-	idx = wd_dh_setting.sched.pick_next_ctx(h_sched_ctx, req, &sess->key);
+	idx = wd_dh_setting.sched.pick_next_ctx(h_sched_ctx, req, &sess_t->key);
 	if (unlikely(idx >= config->ctx_num)) {
 		WD_ERR("failed to pick ctx, idx=%u!\n", idx);
 		return -EINVAL;
@@ -474,7 +477,7 @@ int wd_do_dh_sync(handle_t h_sess, struct wd_dh_req *req)
 	}
 
 	memset(&msg, 0, sizeof(struct wd_dh_msg));
-	ret = fill_dh_msg(&msg, req, sess);
+	ret = fill_dh_msg(&msg, req, sess_t);
 	if (unlikely(ret))
 		return ret;
 
@@ -540,28 +543,43 @@ fail_with_msg:
 	return ret;
 }
 
-int wd_dh_poll_ctx(handle_t ctx, __u32 expt, __u32 *count)
+int wd_dh_poll_ctx(__u32 pos, __u32 expt, __u32 *count)
 {
+	struct wd_ctx_config_internal *config = &wd_dh_setting.config;
+	struct wd_ctx_internal *ctx;
 	struct wd_dh_req *req;
 	struct wd_dh_msg msg;
 	__u32 rcv_cnt = 0;
 	int ret;
 
+	if (unlikely(!count || pos >= config->ctx_num)) {
+		WD_ERR("param error, pos=%u, ctx_num=%u!\n",
+			pos, config->ctx_num);
+		return -EINVAL;
+	}
+
+	ctx = config->ctxs + pos;
+	if (ctx->ctx_mode != CTX_MODE_ASYNC) {
+		WD_ERR("ctx %u mode=%hhu error!\n", pos, ctx->ctx_mode);
+		return -EINVAL;
+	}
+
+	pthread_mutex_unlock(&ctx->lock);
 	do {
-		ret = wd_dh_setting.driver->recv(ctx, &msg);
+		ret = wd_dh_setting.driver->recv(ctx->ctx, &msg);
 		if (ret == -EAGAIN) {
 			break;
 		} else if (ret < 0) {
 			WD_ERR("failed to async recv, ret = %d!\n", ret);
 			*count = rcv_cnt;
-			wd_put_msg_to_pool(&wd_dh_setting.pool, ctx, &msg);
+			wd_put_msg_to_pool(&wd_dh_setting.pool, ctx->ctx, &msg);
 			return ret;
 		}
 		rcv_cnt++;
-		req = wd_get_req_from_pool(&wd_dh_setting.pool, ctx, &msg);
-		if (likely(req))
+		req = wd_get_req_from_pool(&wd_dh_setting.pool, ctx->ctx, &msg);
+		if (likely(req && req->cb))
 			req->cb(req);
-		wd_put_msg_to_pool(&wd_dh_setting.pool, ctx, &msg);
+		wd_put_msg_to_pool(&wd_dh_setting.pool, ctx->ctx, &msg);
 	} while (--expt);
 
 	*count = rcv_cnt;

@@ -339,7 +339,7 @@ int wd_rsa_init(struct wd_ctx_config *config, struct wd_sched *sched)
 
 	if (!wd_is_sva(config->ctxs[0].ctx)) {
 		WD_ERR("no sva, do not rsa init\n");
-		return 0;
+		return -WD_EINVAL;
 	}
 
 	ret = init_global_ctx_setting(config);
@@ -612,7 +612,6 @@ int wd_rsa_poll_ctx(__u32 pos, __u32 expt, __u32 *count)
 	struct wd_rsa_req *req;
 	struct wd_rsa_msg msg;
 	__u32 rcv_cnt = 0;
-
 	int ret;
 
 	if (unlikely(!count || pos >= config->ctx_num)) {
@@ -641,7 +640,7 @@ int wd_rsa_poll_ctx(__u32 pos, __u32 expt, __u32 *count)
 		}
 		rcv_cnt++;
 		req = wd_get_req_from_pool(&wd_rsa_setting.pool, ctx->ctx, &msg);
-		if (likely(req))
+		if (likely(req && req->cb))
 			req->cb(req);
 		wd_put_msg_to_pool(&wd_rsa_setting.pool, ctx->ctx, &msg);
 	} while (--expt);
