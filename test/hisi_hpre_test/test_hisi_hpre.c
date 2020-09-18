@@ -35,6 +35,7 @@
 #include "test_hisi_hpre.h"
 #include "../../include/wd.h"
 #include "../../include/wd_rsa.h"
+#include "../../include/wd_dh.h"
 
 #define HPRE_TST_PRT		printf
 #define BN_ULONG		unsigned long
@@ -133,7 +134,7 @@ enum dh_check_index {
 };
 
 struct rsa_async_tag {
-	void *ctx;
+	handle_t sess;
 	int thread_id;
 	int cnt;
 	struct test_hpre_pthread_dt *thread_info;
@@ -254,9 +255,7 @@ struct hpre_dh_test_ctx_setup {
 	u32 generator;
 	u32 key_bits;
 	u32 key_from; //0 - Openssl  1 - Designed
-	void *pool;
-	void *q;
-	void *ctx;
+	handle_t sess;
 };
 
 struct hpre_dh_sw_opdata {
@@ -478,9 +477,7 @@ struct ecc_test_ctx_setup {
 	u32 key_from; //0 - Openssl  1 - Designed
 	u32 nid; //openssl ecc nid
 	u32 curve_id; // WD ecc curve_id
-	void *pool;
-	void *q;
-	void *ctx;
+	handle_t sess;
 };
 
 struct ecc_test_ctx {
@@ -1180,9 +1177,7 @@ static void uninit_hpre_global_config(void)
 	wd_rsa_uninit();
 }
 
-#if 0 // will be added later dh
-static int init_opdata_param(void *pool,
-			     struct wd_dh_op_data *req,
+static int init_opdata_param(struct wd_dh_req *req,
 			     int key_size, enum dh_check_index step)
 {
 	unsigned char *ag_bin = NULL;
@@ -1232,14 +1227,14 @@ void hpre_dh_del_test_ctx(struct hpre_dh_test_ctx *test_ctx)
 		free(req);
 		DH_free(test_ctx->priv);
 	} else if (HW_GENERATE_KEY == test_ctx->op) {
-		struct wd_dh_op_data *req = test_ctx->req;
+		struct wd_dh_req *req = test_ctx->req;
 
 		free(req->x_p);
 		free(req->pri);
 		free(req);
 		free(test_ctx->cp_pub_key);
 	} else if (HW_COMPUTE_KEY == test_ctx->op) {
-		struct wd_dh_op_data *req = test_ctx->req;
+		struct wd_dh_req *req = test_ctx->req;
 
 		free(req->pv);
 		free(req->x_p);
@@ -1387,22 +1382,22 @@ static struct hpre_dh_test_ctx *create_hw_gen_key_test_ctx(struct hpre_dh_test_c
 {
 	const BIGNUM *p = NULL, *g = NULL, *x = NULL;
 	const BIGNUM *pub_key = NULL;
-	struct wd_dh_op_data *req;
+	struct wd_dh_req *req;
 	struct hpre_dh_test_ctx *test_ctx;
 	struct wd_dtb ctx_g;
 	int ret;
 	u32 key_size = setup.key_bits >> 3;
 	DH *dh = NULL;
 
-	if (!setup.q || !setup.pool || setup.op_type !=HW_GENERATE_KEY) {
+	if (setup.op_type != HW_GENERATE_KEY) {
 		HPRE_TST_PRT("%s: parm err!\n", __func__);
 		return NULL;
 	}
 
-	req = malloc(sizeof(struct wd_dh_op_data));
+	req = malloc(sizeof(struct wd_dh_req));
 	if (!req)
 		return NULL;
-	memset(req, 0, sizeof(struct hpre_dh_sw_opdata));
+	memset(req, 0, sizeof(struct wd_dh_req));
 
 	dh = DH_new();
 	if (!dh) {
@@ -1436,7 +1431,7 @@ static struct hpre_dh_test_ctx *create_hw_gen_key_test_ctx(struct hpre_dh_test_c
 		return NULL;
 	}
 
-	ret = init_opdata_param(setup.pool, req, key_size, DH_ALICE_PUBKEY);
+	ret = init_opdata_param(req, key_size, DH_ALICE_PUBKEY);
 	if (ret < 0) {
 		HPRE_TST_PRT("init_opdata_param failed\n");
 		free(test_ctx);
@@ -1493,9 +1488,8 @@ static struct hpre_dh_test_ctx *create_hw_gen_key_test_ctx(struct hpre_dh_test_c
 
 	req->op_type = WD_DH_PHASE1;
 	test_ctx->req = req;
-	test_ctx->pool = setup.pool;
 	test_ctx->op = setup.op_type;
-	test_ctx->priv = setup.ctx; //init ctx
+	test_ctx->priv = (void *)setup.sess;
 	test_ctx->key_size = key_size;
 
 	ret = wd_set_dh_g(test_ctx->priv, &ctx_g);
@@ -1520,22 +1514,22 @@ exit_free:
 static struct hpre_dh_test_ctx *create_hw_compute_key_test_ctx(struct hpre_dh_test_ctx_setup setup)
 {
 	const BIGNUM *p = NULL, *g = NULL, *x = NULL;
-	struct wd_dh_op_data *req;
+	struct wd_dh_req *req;
 	struct hpre_dh_test_ctx *test_ctx;
 	int ret;
 	u32 key_size = setup.key_bits >> 3;
 	DH *dh = NULL;
 	DH *b = NULL;
 
-	if (!setup.q || !setup.pool || setup.op_type !=HW_COMPUTE_KEY) {
+	if (setup.op_type !=HW_COMPUTE_KEY) {
 		HPRE_TST_PRT("%s: parm err!\n", __func__);
 		return NULL;
 	}
 
-	req = malloc(sizeof(struct wd_dh_op_data));
+	req = malloc(sizeof(struct wd_dh_req));
 	if (!req)
 		return NULL;
-	memset(req, 0, sizeof(struct wd_dh_op_data));
+	memset(req, 0, sizeof(struct wd_dh_req));
 
 	dh = DH_new();
 	if (!dh) {
@@ -1559,7 +1553,7 @@ static struct hpre_dh_test_ctx *create_hw_compute_key_test_ctx(struct hpre_dh_te
 		return NULL;
 	}
 
-	ret = init_opdata_param(setup.pool, req, key_size, DH_ALICE_PRIVKEY);
+	ret = init_opdata_param(req, key_size, DH_ALICE_PRIVKEY);
 	if (ret < 0) {
 		HPRE_TST_PRT("init_opdata_param failed\n");
 		free(test_ctx);
@@ -1618,9 +1612,8 @@ static struct hpre_dh_test_ctx *create_hw_compute_key_test_ctx(struct hpre_dh_te
 	}
 
 	req->op_type = WD_DH_PHASE2;
-	test_ctx->priv = setup.ctx; //init ctx
+	test_ctx->priv = setup.sess; //init ctx
 	test_ctx->req = req;
-	test_ctx->pool = setup.pool;
 	test_ctx->op = setup.op_type;
 	test_ctx->key_size = key_size;
 
@@ -1696,10 +1689,13 @@ int dh_generate_key(void *test_ctx, void *tag)
 #endif
 
 	} else {
-		struct wd_dh_op_data *req = t_c->req;
-		void* ctx = t_c->priv;
+		struct wd_dh_req *req = t_c->req;
+		handle_t sess = t_c->priv;
 try_again:
-		ret = wd_do_dh(ctx, req, tag);
+		if (tag)
+			ret = wd_do_dh_async(sess, req);
+		else
+			ret = wd_do_dh_sync(sess, req);
 		if (ret == -WD_EBUSY) {
 			usleep(100);
 			goto try_again;
@@ -1734,11 +1730,13 @@ int dh_compute_key(void *test_ctx, void *tag)
 
 #endif
 	} else {
-		struct wd_dh_op_data *req = t_c->req;
-		void* ctx = t_c->priv;
+		struct wd_dh_req *req = t_c->req;
+		handle_t sess = t_c->priv;
 try_again:
-
-		ret = wd_do_dh(ctx, req, tag);
+		if (tag)
+			ret = wd_do_dh_async(sess, req);
+		else
+			ret = wd_do_dh_sync(sess, req);
 		if (ret == -WD_EBUSY) {
 			usleep(100);
 			goto try_again;
@@ -1753,7 +1751,6 @@ try_again:
 
 	return 0;
 }
-#endif
 
 static bool is_exit(struct test_hpre_pthread_dt *pdata)
 {
@@ -1772,10 +1769,9 @@ static bool is_exit(struct test_hpre_pthread_dt *pdata)
 	return false;
 }
 
-#if 0 /* will be added later */
 static int dh_result_check(struct hpre_dh_test_ctx *test_ctx)
 {
-	struct wd_dh_op_data *req = test_ctx->req;
+	struct wd_dh_req *req = test_ctx->req;
 	unsigned char *cp_key;
 	u32 cp_size;
 
@@ -1802,7 +1798,6 @@ static int dh_result_check(struct hpre_dh_test_ctx *test_ctx)
 	return 0;
 
 }
-#endif
 
 static bool is_allow_print(int cnt, enum alg_op_type opType, int thread_num)
 {
@@ -1860,11 +1855,9 @@ static bool is_allow_print(int cnt, enum alg_op_type opType, int thread_num)
 		return false;
 }
 
-#if 0 // will be added later dh
-static void _dh_perf_cb(const void *message, void *tag)
+static void _dh_perf_cb(struct wd_dh_req *req)
 {
-	//const struct wd_dh_msg *msg = message;
-	struct dh_user_tag_info* pTag = (struct dh_user_tag_info*)tag;
+	struct dh_user_tag_info* pTag = (struct dh_user_tag_info*)req->cb_param;
 	struct test_hpre_pthread_dt *thread_data = pTag->thread_data;
 
 	thread_data->recv_task_num++;
@@ -1872,17 +1865,15 @@ static void _dh_perf_cb(const void *message, void *tag)
 	free(pTag);
 }
 
-static void _dh_cb(const void *message, void *tag)
+static void _dh_cb(struct wd_dh_req *req)
 {
-	const struct wd_dh_msg *msg = message;
-	struct dh_user_tag_info* pSwData = (struct dh_user_tag_info*)tag;
+	struct dh_user_tag_info* pSwData = (struct dh_user_tag_info*)req->cb_param;
 	struct timeval start_tval, end_tval;
 	int pid, threadId;
 	float time, speed;
 	int ret;
 	static int failTimes = 0;
 	struct hpre_dh_test_ctx *test_ctx = pSwData->test_ctx;
-	struct wd_dh_op_data *req = test_ctx->req;
 	struct test_hpre_pthread_dt *thread_data = pSwData->thread_data;
 
 	start_tval = thread_data->start_tval;
@@ -1896,7 +1887,6 @@ static void _dh_cb(const void *message, void *tag)
 	}
 
 	if (g_config.check) {
-		req->pri_bytes = msg->out_bytes;
 		ret = dh_result_check(test_ctx);
 		if (ret) {
 			failTimes++;
@@ -1925,6 +1915,8 @@ err:
 
 int dh_init_test_ctx_setup(struct hpre_dh_test_ctx_setup *setup)
 {
+	__u32 key_bits = g_config.key_bits;
+
 	if (!setup)
 		return -1;
 
@@ -1938,7 +1930,7 @@ int dh_init_test_ctx_setup(struct hpre_dh_test_ctx_setup *setup)
 	else
 		setup->key_from = 0; //0 - Openssl  1 - Designed
 
-	setup->key_bits = key_bits;
+	setup->key_bits = g_config.key_bits;
 
 	if (key_bits == 768) {
 		setup->x = dh_xa_768;
@@ -2035,25 +2027,17 @@ static void *_hpre_dh_sys_test_thread(void *data)
 	int pid = getpid();
 	int thread_id = (int)syscall(__NR_gettid);
 	int ret, cpuid, opstr_idx = 0;
-	struct wd_queue *q = NULL;
-	void *pool = NULL;
-	void *ctx = NULL;
-	struct wd_dh_ctx_setup dh_setup;
+	handle_t *sess = NULL;
+	struct wd_dh_sess_setup dh_setup;
+	struct wd_dh_req *req;
 
 	CPU_ZERO(&mask);
 	cpuid = pdata->cpu_id;
-	q = (struct wd_queue *)pdata->q;
-	pool = pdata->pool;
 	opType = pdata->op_type;
 	thread_num = pdata->thread_num;
 
 	if (g_config.perf_test && (!g_config.times && !g_config.seconds)) {
 		HPRE_TST_PRT("g_config.times or  g_config.seconds err\n");
-		return NULL;
-	}
-
-	if (!q || !pool) {
-		HPRE_TST_PRT("q or pool null!\n");
 		return NULL;
 	}
 
@@ -2071,32 +2055,25 @@ static void *_hpre_dh_sys_test_thread(void *data)
 
 	if (!g_config.soft_test) {
 		memset(&dh_setup, 0, sizeof(dh_setup));
-		dh_setup.key_bits = key_bits;
-		if (g_config.perf_test)
-			dh_setup.cb = _dh_perf_cb;
-		else
-			dh_setup.cb = _dh_cb;
-
+		dh_setup.key_bits = g_config.key_bits;
 		if (!strcmp(g_config.alg_mode, "g2"))
 			dh_setup.is_g2 = true;
 		else
 			dh_setup.is_g2 = false;
 
-		ctx = wd_create_dh_ctx(q, &dh_setup);
-		if (!ctx) {
-			HPRE_TST_PRT("wd_create_dh_ctx failed\n");
+		sess = wd_dh_alloc_sess(&dh_setup);
+		if (!sess) {
+			HPRE_TST_PRT("wd_dh_alloc_ctx failed\n");
 			return NULL;
 		}
 	}
 
 	if (dh_init_test_ctx_setup(&setup)) {
-		wd_del_dh_ctx(ctx);
+		wd_dh_free_sess(sess);
 		return NULL;
 	}
 
-	setup.pool = pool;
-	setup.q = q;
-	setup.ctx = ctx;
+	setup.sess = sess;
 
 	if (opType == DH_ASYNC_GEN || opType == DH_GEN)
 		setup.op_type = (g_config.soft_test) ? SW_GENERATE_KEY: HW_GENERATE_KEY;
@@ -2110,6 +2087,7 @@ new_test_again:
 		return NULL;
 	}
 
+	req = test_ctx->req;
 	do {
 		if (opType == DH_ASYNC_GEN ||
 			opType == DH_ASYNC_COMPUTE) {
@@ -2124,6 +2102,11 @@ new_test_again:
 			pTag->thread_data = pdata;
 			pTag->pid = pid;
 			pTag->thread_id = thread_id;
+			if (g_config.perf_test)
+				req->cb = _dh_perf_cb;
+			else
+				req->cb = _dh_cb;
+			req->cb_param = pTag;
 		}
 
 		if (opType == DH_ASYNC_GEN || opType == DH_GEN) {
@@ -2188,7 +2171,7 @@ fail_release:
 		return NULL;
 	}
 	if (test_ctx->op == HW_COMPUTE_KEY || test_ctx->op == HW_GENERATE_KEY)
-		wd_del_dh_ctx(test_ctx->priv);
+		wd_dh_free_sess(test_ctx->priv);
 
 	if (opType == DH_GEN || opType == DH_COMPUTE)
 		hpre_dh_del_test_ctx(test_ctx);
@@ -2196,6 +2179,7 @@ fail_release:
 	return NULL;
 }
 
+#if 0
 static struct ecc_test_ctx *x_create_sw_gen_test_ctx(struct ecc_test_ctx_setup setup, u32 optype)
 {
 	struct ecc_test_ctx *test_ctx;
@@ -2503,7 +2487,7 @@ static struct ecc_test_ctx *ecc_create_hw_gen_test_ctx(struct ecc_test_ctx_setup
 	struct ecc_test_ctx *test_ctx;
 	struct wd_ecc_key *ecc_key;
 	struct wd_ecc_out *ecc_out;
-	void *ctx = setup.ctx;
+	handle_t sess = setup.sess;
 	struct wd_dtb d;
 	int ret;
 	u32 key_size;
@@ -2525,20 +2509,20 @@ static struct ecc_test_ctx *ecc_create_hw_gen_test_ctx(struct ecc_test_ctx_setup
 	}
 	memset(test_ctx, 0, sizeof(struct ecc_test_ctx));
 
-	key_size = (wd_get_ecc_key_bits(ctx) + 7) / 8;
+	key_size = (wd_get_ecc_key_bits(sess) + 7) / 8;
 	test_ctx->cp_pub_key = malloc(2 * key_size);
 	if (!test_ctx->cp_pub_key) {
 		HPRE_TST_PRT("%s: malloc fail!\n", __func__);
 		goto free_ctx;
 	}
 
-	ecc_out = wd_rsa_new_ecxdh_out(ctx);
+	ecc_out = wd_ecc_new_ecxdh_out(sess);
 	if (!ecc_out) {
 		HPRE_TST_PRT("%s: new ecc out fail!\n", __func__);
 		goto free_cp_key;
 	}
 
-	ecc_key = wd_get_ecc_key(ctx);
+	ecc_key = wd_get_ecc_key(sess);
 
 	if (setup.key_from) {  // performance || async ,the param is ready by curve
 		if (!setup.d || !setup.cp_pub_key ||
@@ -2669,9 +2653,8 @@ static struct ecc_test_ctx *ecc_create_hw_gen_test_ctx(struct ecc_test_ctx_setup
 	req->op_type = WD_ECXDH_GEN_KEY;
 	req->dst = ecc_out;
 	test_ctx->req = req;
-	test_ctx->pool = setup.pool;
 	test_ctx->op = setup.op_type;
-	test_ctx->priv = ctx; //init ctx
+	test_ctx->priv = sess; //init ctx
 	test_ctx->key_size = key_size;
 
 	return test_ctx;
@@ -3875,7 +3858,7 @@ int ecdh_generate_key(void *test_ctx, void *tag)
 		}
 	} else {
 		struct wd_ecc_op_data *req = t_c->req;
-		void* ctx = t_c->priv;
+		handle_t sess = t_c->priv;
 try_again:
 		ret = wd_do_ecxdh(ctx, req, tag);
 		if (ret == -WD_EBUSY) {
@@ -3947,7 +3930,7 @@ int ecdh_compute_key(void *test_ctx, void *tag)
 #endif
 	} else {
 		struct wd_ecc_op_data *req = t_c->req;
-		void* ctx = t_c->priv;
+		handle_t sess = t_c->priv;
 try_again:
 
 		ret = wd_do_ecxdh(ctx, req, tag);
@@ -3990,7 +3973,7 @@ int ecdsa_sign(void *test_ctx, void *tag)
 
 	} else {
 		struct wd_ecc_op_data *req = t_c->req;
-		void* ctx = t_c->priv;
+		handle_t sess = t_c->priv;
 try_again:
 		ret = wd_do_ecdsa(ctx, req, tag);
 		if (ret == -WD_EBUSY) {
@@ -4042,7 +4025,7 @@ int ecdsa_verf(void *test_ctx, void *tag)
 
 	} else {
 		struct wd_ecc_op_data *req = t_c->req;
-		void* ctx = t_c->priv;
+		handle_t sess = t_c->priv;
 try_again:
 		ret = wd_do_ecdsa(ctx, req, tag);
 		if (ret == -WD_EBUSY) {
@@ -4870,7 +4853,7 @@ int hpre_test_write_to_file(__u8 *out, int size, char *out_file,
 }
 
 
-static int get_rsa_key_from_test_sample(void *ctx, char *pubkey_file,
+static int get_rsa_key_from_test_sample(handle_t sess, char *pubkey_file,
 			char *privkey_file,
 			char *crt_privkey_file, int is_file)
 {
@@ -4889,7 +4872,7 @@ static int get_rsa_key_from_test_sample(void *ctx, char *pubkey_file,
 	memset(&wd_q, 0, sizeof(wd_q));
 	memset(&wd_p, 0, sizeof(wd_p));
 
-	bits = wd_rsa_key_bits(ctx);
+	bits = wd_rsa_key_bits(sess);
 	if (bits == 1024) {
 		e = rsa_e_1024;
 		p = rsa_p_1024;
@@ -4940,7 +4923,7 @@ static int get_rsa_key_from_test_sample(void *ctx, char *pubkey_file,
 	wd_e.dsize = key_size;
 	memcpy(wd_n.data, n, key_size);
 	wd_n.dsize = key_size;
-	if (wd_rsa_set_pubkey_params(ctx, &wd_e, &wd_n))
+	if (wd_rsa_set_pubkey_params(sess, &wd_e, &wd_n))
 	{
 		HPRE_TST_PRT("set rsa pubkey failed %d!\n", ret);
 		goto gen_fail;
@@ -4967,9 +4950,7 @@ static int get_rsa_key_from_test_sample(void *ctx, char *pubkey_file,
 		memcpy(rsa_key_in->q, q, key_size / 2);
 	}
 
-	//wd_rsa_get_prikey(ctx, &prikey);
-	if (wd_rsa_is_crt(ctx)) {
-		//wd_rsa_get_crt_prikey_params(prikey, &wd_dq, &wd_dp, &wd_qinv, &wd_q, &wd_p);
+	if (wd_rsa_is_crt(sess)) {
 		wd_dq.bsize = CRT_PARAM_SZ(key_size);
 		wd_dq.data = malloc(CRT_PARAMS_SZ(key_size));
 		wd_dp.bsize = CRT_PARAM_SZ(key_size);
@@ -4997,7 +4978,7 @@ static int get_rsa_key_from_test_sample(void *ctx, char *pubkey_file,
 		wd_qinv.dsize = key_size / 2;
 		memcpy(wd_qinv.data, iqmp, key_size / 2);
 
-		if (wd_rsa_set_crt_prikey_params(ctx, &wd_dq,
+		if (wd_rsa_set_crt_prikey_params(sess, &wd_dq,
 					&wd_dp, &wd_qinv,
 					&wd_q, &wd_p))
 		{
@@ -5036,7 +5017,7 @@ static int get_rsa_key_from_test_sample(void *ctx, char *pubkey_file,
 			wd_n.dsize = key_size;
 			memcpy(wd_n.data, n, key_size);
 
-			if (wd_rsa_set_prikey_params(ctx, &wd_d, &wd_n))
+			if (wd_rsa_set_prikey_params(sess, &wd_d, &wd_n))
 			{
 				HPRE_TST_PRT("set rsa prikey failed %d!\n", ret);
 				goto gen_fail;
@@ -5072,7 +5053,7 @@ static int get_rsa_key_from_test_sample(void *ctx, char *pubkey_file,
 	if (wd_e.data)
 		free(wd_e.data);
 
-	if (wd_rsa_is_crt(ctx)) {
+	if (wd_rsa_is_crt(sess)) {
 		if (wd_dq.data)
 			free(wd_dq.data);
 	} else {
@@ -5086,7 +5067,7 @@ gen_fail:
 	if (wd_e.data)
 		free(wd_e.data);
 
-	if (wd_rsa_is_crt(ctx)) {
+	if (wd_rsa_is_crt(sess)) {
 		if (wd_dq.data)
 			free(wd_dq.data);
 	} else {
@@ -5098,7 +5079,7 @@ gen_fail:
 }
 
 
-static int test_rsa_key_gen(void *ctx, char *pubkey_file,
+static int test_rsa_key_gen(handle_t sess, char *pubkey_file,
 			char *privkey_file,
 			char *crt_privkey_file, int is_file)
 {
@@ -5122,7 +5103,7 @@ static int test_rsa_key_gen(void *ctx, char *pubkey_file,
 	memset(&wd_q, 0, sizeof(wd_q));
 	memset(&wd_p, 0, sizeof(wd_p));
 
-	bits = wd_rsa_key_bits(ctx);
+	bits = wd_rsa_key_bits(sess);
 	test_rsa = RSA_new();
 	if (!test_rsa || !bits) {
 		HPRE_TST_PRT("RSA new fail!\n");
@@ -5171,7 +5152,7 @@ static int test_rsa_key_gen(void *ctx, char *pubkey_file,
 		goto gen_fail;
 	}
 
-	if (wd_rsa_set_pubkey_params(ctx, &wd_e, &wd_n))
+	if (wd_rsa_set_pubkey_params(sess, &wd_e, &wd_n))
 	{
 		HPRE_TST_PRT("set rsa pubkey failed %d!\n", ret);
 		goto gen_fail;
@@ -5209,7 +5190,7 @@ static int test_rsa_key_gen(void *ctx, char *pubkey_file,
 	}
 
 	//wd_rsa_get_prikey(ctx, &prikey);
-	if (wd_rsa_is_crt(ctx)) {
+	if (wd_rsa_is_crt(sess)) {
 		//wd_rsa_get_crt_prikey_params(prikey, &wd_dq, &wd_dp, &wd_qinv, &wd_q, &wd_p);
 		wd_dq.bsize = CRT_PARAM_SZ(key_size);
 		wd_dq.data = malloc(CRT_PARAMS_SZ(key_size));
@@ -5253,7 +5234,7 @@ static int test_rsa_key_gen(void *ctx, char *pubkey_file,
 			goto gen_fail;
 		}
 
-		if (wd_rsa_set_crt_prikey_params(ctx, &wd_dq,
+		if (wd_rsa_set_crt_prikey_params(sess, &wd_dq,
 					&wd_dp, &wd_qinv,
 					&wd_q, &wd_p))
 		{
@@ -5306,7 +5287,7 @@ static int test_rsa_key_gen(void *ctx, char *pubkey_file,
 			wd_d.dsize = BN_bn2bin(d, (unsigned char *)wd_d.data);
 			wd_n.dsize = BN_bn2bin(n, (unsigned char *)wd_n.data);
 
-			if (wd_rsa_set_prikey_params(ctx, &wd_d, &wd_n))
+			if (wd_rsa_set_prikey_params(sess, &wd_d, &wd_n))
 			{
 				HPRE_TST_PRT("set rsa prikey failed %d!\n", ret);
 				goto gen_fail;
@@ -5352,7 +5333,7 @@ static int test_rsa_key_gen(void *ctx, char *pubkey_file,
 	if (wd_e.data)
 		free(wd_e.data);
 
-	if (wd_rsa_is_crt(ctx)) {
+	if (wd_rsa_is_crt(sess)) {
 		if (wd_dq.data)
 			free(wd_dq.data);
 	} else {
@@ -5369,7 +5350,7 @@ gen_fail:
 	if (wd_e.data)
 		free(wd_e.data);
 
-	if (wd_rsa_is_crt(ctx)) {
+	if (wd_rsa_is_crt(sess)) {
 		if (wd_dq.data)
 			free(wd_dq.data);
 	} else {
@@ -5380,18 +5361,18 @@ gen_fail:
 	return ret;
 }
 
-int hpre_test_fill_keygen_opdata(void *ctx, struct wd_rsa_req *req)
+int hpre_test_fill_keygen_opdata(handle_t sess, struct wd_rsa_req *req)
 {
 	struct wd_dtb *e, *p, *q;
 	struct wd_rsa_pubkey *pubkey;
 	struct wd_rsa_prikey *prikey;
 	struct wd_dtb t_e, t_p, t_q;
 
-	wd_rsa_get_pubkey(ctx, &pubkey);
+	wd_rsa_get_pubkey(sess, &pubkey);
 	wd_rsa_get_pubkey_params(pubkey, &e, NULL);
-	wd_rsa_get_prikey(ctx, &prikey);
+	wd_rsa_get_prikey(sess, &prikey);
 
-	if (wd_rsa_is_crt(ctx)) {
+	if (wd_rsa_is_crt(sess)) {
 		wd_rsa_get_crt_prikey_params(prikey, NULL , NULL, NULL, &q, &p);
 	} else {
 		e = &t_e;
@@ -5405,12 +5386,12 @@ int hpre_test_fill_keygen_opdata(void *ctx, struct wd_rsa_req *req)
 		q->dsize = rsa_key_in->q_size;
 	}
 
-	req->src = wd_rsa_new_kg_in(ctx, e, p, q);
+	req->src = wd_rsa_new_kg_in(sess, e, p, q);
 	if (!req->src) {
 		HPRE_TST_PRT("create rsa kgen in fail!\n");
 		return -ENOMEM;
 	}
-	req->dst = wd_rsa_new_kg_out(ctx);
+	req->dst = wd_rsa_new_kg_out(sess);
 	if (!req->dst) {
 		HPRE_TST_PRT("create rsa kgen out fail!\n");
 		return -ENOMEM;
@@ -5428,7 +5409,7 @@ static BIGNUM *hpre_bin_to_bn(void *bin, int raw_size)
 	return BN_bin2bn((const unsigned char *)bin, raw_size, NULL);
 }
 
-int hpre_test_result_check(void *ctx,  struct wd_rsa_req *req, void *key)
+int hpre_test_result_check(handle_t sess,  struct wd_rsa_req *req, void *key)
 {
 	struct wd_rsa_kg_out *out = (void *)req->dst;
 	struct wd_rsa_prikey *prikey;
@@ -5445,11 +5426,11 @@ int hpre_test_result_check(void *ctx,  struct wd_rsa_req *req, void *key)
 		return -ENOMEM;
 	}
 
-	wd_rsa_get_prikey(ctx, &prikey);
-	keybits = wd_rsa_key_bits(ctx);
+	wd_rsa_get_prikey(sess, &prikey);
+	keybits = wd_rsa_key_bits(sess);
 	key_size = keybits >> 3;
 	if (req->op_type == WD_RSA_GENKEY) {
-		if (wd_rsa_is_crt(ctx)) {
+		if (wd_rsa_is_crt(sess)) {
 			struct wd_dtb qinv, dq, dp;
 			struct wd_dtb *s_qinv, *s_dq, *s_dp;
 
@@ -5533,7 +5514,7 @@ int hpre_test_result_check(void *ctx,  struct wd_rsa_req *req, void *key)
 			return -ENOMEM;
 		}
 
-		if (key && wd_rsa_is_crt(ctx)) {
+		if (key && wd_rsa_is_crt(sess)) {
 			BIGNUM *dp, *dq, *iqmp, *p, *q;
 			int size = key_size / 2;
 
@@ -5588,7 +5569,7 @@ int hpre_test_result_check(void *ctx,  struct wd_rsa_req *req, void *key)
 				return -EINVAL;
 			}
 
-		} else if (key && !wd_rsa_is_crt(ctx)) {
+		} else if (key && !wd_rsa_is_crt(sess)) {
 			BIGNUM *d;
 
 			nn = hpre_bin_to_bn(key + key_size, key_size);
@@ -5641,343 +5622,13 @@ int hpre_test_result_check(void *ctx,  struct wd_rsa_req *req, void *key)
 	return 0;
 }
 
-#if 0 /* will be added later */
-int hpre_dh_test(void *c, struct hpre_queue_mempool *pool)
-{
-	DH *a = NULL, *b = NULL;
-	int ret, generator = DH_GENERATOR_5;
-	struct wd_dh_op_data opdata_a;
-	struct wd_dh_op_data opdata_b;
-	const BIGNUM *ap = NULL, *ag = NULL,
-			*apub_key = NULL, *apriv_key = NULL;
-	const BIGNUM *bp = NULL, *bg = NULL,
-			*bpub_key = NULL, *bpriv_key = NULL;
-	unsigned char *ap_bin = NULL, *ag_bin = NULL,
-			*apub_key_bin = NULL, *apriv_key_bin = NULL;
-	unsigned char *bp_bin = NULL, *bg_bin = NULL,
-			*bpub_key_bin = NULL, *bpriv_key_bin = NULL;
-	unsigned char *abuf = NULL;
-	struct wd_dtb g;
-
-	__u32 gbytes;
-	void *tag = NULL;
-	int key_size, key_bits, bin_size = 0;
-
-	if (!pool) {
-		HPRE_TST_PRT("pool null!\n");
-		return -1;
-	}
-
-	a = DH_new();
-	b = DH_new();
-	if (!a || !b) {
-		HPRE_TST_PRT("New DH fail!\n");
-		return -1;
-	}
-
-	if (wd_dh_is_g2(c))
-		generator = DH_GENERATOR_2;
-
-	key_bits = wd_dh_key_bits(c);
-	key_size = key_bits >> 3;
-
-	/* Alice generates DH parameters */
-	ret = DH_generate_parameters_ex(a, key_bits, generator, NULL);
-	if (!ret) {
-		HPRE_TST_PRT("DH_generate_parameters_ex fail!\n");
-		goto dh_err;
-	}
-
-	DH_get0_pqg(a, &ap, NULL, &ag);
-	bp = BN_dup(ap);
-	bg = BN_dup(ag);
-	if (!bp || !bg) {
-		HPRE_TST_PRT("bn dump fail!\n");
-		ret = -1;
-		goto dh_err;
-	}
-
-	/* Set the same parameters on Bob as Alice :) */
-	DH_set0_pqg(b, (BIGNUM *)bp, NULL, (BIGNUM *)bg);
-	if (!DH_generate_key(a)) {
-		HPRE_TST_PRT("a DH_generate_key fail!\n");
-		ret = -1;
-		goto dh_err;
-	}
-
-	DH_get0_key(a, &apub_key, &apriv_key);
-	ag_bin = malloc(key_size * 2);
-	if (!ag_bin) {
-		HPRE_TST_PRT("pool alloc ag_bin fail!\n");
-		goto dh_err;
-	}
-	memset(ag_bin, 0, key_size * 2);
-	apriv_key_bin = malloc(key_size * 2);
-	if (!apriv_key_bin) {
-		HPRE_TST_PRT("pool alloc apriv_key_bin fail!\n");
-		goto dh_err;
-	}
-	memset(apriv_key_bin, 0, key_size * 2);
-
-	/* The hpre_UM tells us key_addr contains xa and p,
-	 * their addr should be together
-	 */
-	ap_bin= apriv_key_bin + key_size;
-
-	gbytes = BN_bn2bin(ag, ag_bin);
-	g.data = (char*)ag_bin;
-	g.bsize = key_size;
-	g.dsize = gbytes;
-	opdata_a.pbytes = BN_bn2bin(ap, ap_bin);
-	opdata_a.xbytes = BN_bn2bin(apriv_key, apriv_key_bin);
-	ret = wd_set_dh_g(c, &g);
-	if (ret) {
-		HPRE_TST_PRT("Alice wd_set_dh_g fail!\n");
-		goto dh_err;
-	}
-	opdata_a.x_p = apriv_key_bin;
-	opdata_a.pri = malloc(key_size * 2);
-	if (!opdata_a.pri) {
-		HPRE_TST_PRT("pool alloc opdata_a.pri fail!\n");
-		goto dh_err;
-	}
-	memset(opdata_a.pri, 0, key_size * 2);
-
-	opdata_a.op_type = WD_DH_PHASE1;
-
-	/* Alice computes public key */
-	ret = wd_do_dh(c, &opdata_a, tag);
-	if (ret) {
-		HPRE_TST_PRT("a wd_do_dh fail!\n");
-		goto dh_err;
-	}
-
-	if (g_config.check) {
-		apub_key_bin = malloc(key_size);
-		if (!apub_key_bin) {
-			HPRE_TST_PRT("malloc apub_key_bin fail!\n");
-			ret = -ENOMEM;
-			goto dh_err;
-		}
-		ret = BN_bn2bin(apub_key, apub_key_bin);
-		if (!ret) {
-			HPRE_TST_PRT("apub_key bn 2 bin fail!\n");
-			ret = -1;
-			goto dh_err;
-		}
-		bin_size = ret;
-
-		if (memcmp(apub_key_bin, opdata_a.pri, bin_size)) {
-			HPRE_TST_PRT("Alice HPRE DH key gen pub mismatch, dsize %d!\n", bin_size);
-			ret = -EINVAL;
-#ifdef DEBUG
-			print_data(apub_key_bin, key_size, "SOFT");
-			print_data(opdata_a.pri, key_size, "HARDWATE");
-#endif
-			goto dh_err;
-		}
-	}
-	if (!DH_generate_key(b)) {
-		HPRE_TST_PRT("b DH_generate_key fail!\n");
-		ret = -1;
-		goto dh_err;
-	}
-	DH_get0_key(b, &bpub_key, &bpriv_key);
-	bg_bin = malloc(key_size * 2);
-	if (!bg_bin) {
-		HPRE_TST_PRT("pool alloc bg_bin fail!\n");
-		ret = -1;
-		goto dh_err;
-	}
-	memset(bg_bin, 0, key_size * 2);
-
-	bpriv_key_bin= malloc(key_size * 2);
-	if (!bpriv_key_bin) {
-		HPRE_TST_PRT("pool alloc bpriv_key_bin fail!\n");
-		ret = -1;
-		goto dh_err;
-	}
-	memset(bpriv_key_bin, 0, key_size * 2);
-	bp_bin = bpriv_key_bin + key_size;
-	gbytes = BN_bn2bin(bg, bg_bin);
-	g.data = (char*)bg_bin;
-	g.bsize = gbytes;
-	g.dsize = key_size;
-	ret = wd_set_dh_g(c, &g);
-	if (ret) {
-		HPRE_TST_PRT("bob wd_set_dh_g fail!\n");
-		goto dh_err;
-	}
-	opdata_b.pbytes = BN_bn2bin(bp, bp_bin);
-	opdata_b.xbytes = BN_bn2bin(bpriv_key, bpriv_key_bin);
-	opdata_b.x_p = bpriv_key_bin;
-	opdata_b.pri = malloc(key_size * 2);
-	if (!opdata_b.pri) {
-		HPRE_TST_PRT("pool alloc opdata_b.pri fail!\n");
-		ret = -1;
-		goto dh_err;
-	}
-	memset(opdata_b.pri, 0, key_size * 2);
-	opdata_b.op_type = WD_DH_PHASE1;
-
-	/* Bob computes public key */
-	ret = wd_do_dh(c, &opdata_b, tag);
-	if (ret) {
-		HPRE_TST_PRT("b wd_do_dh fail!\n");
-		goto dh_err;
-	}
-	if (g_config.check) {
-		bpub_key_bin = malloc(key_size);
-		if (!bpub_key_bin) {
-			HPRE_TST_PRT("malloc bpub_key_bin fail!\n");
-			ret = -1;
-			goto dh_err;
-		}
-		ret = BN_bn2bin(bpub_key, bpub_key_bin);
-		if (!ret) {
-			HPRE_TST_PRT("bpub_key bn 2 bin fail!\n");
-			goto dh_err;
-		}
-		bin_size = ret;
-
-		if (memcmp(bpub_key_bin, opdata_b.pri, bin_size)) {
-			HPRE_TST_PRT("Bob HPRE DH key gen pub mismatch, dsize %d!\n", bin_size);
-			ret = -EINVAL;
-#ifdef DEBUG
-			print_data(bpub_key_bin, key_size, "SOFT");
-			print_data(opdata_b.pri, key_size, "HARDWATE");
-#endif
-			goto dh_err;
-		}
-	}
-	/* Alice computes private key with OpenSSL */
-	abuf = malloc(key_size);
-	if (!abuf) {
-		HPRE_TST_PRT("malloc abuf fail!\n");
-		ret = -ENOMEM;
-		goto dh_err;
-	}
-
-	memset(abuf, 0, key_size);
-	if (g_config.check) {
-		ret = DH_compute_key(abuf, bpub_key, a);
-		if (!ret) {
-			HPRE_TST_PRT("DH_compute_key fail!\n");
-			ret = -1;
-			goto dh_err;
-		}
-		bin_size = ret;
-	}
-
-	/* Alice computes private key with HW accelerator */
-	memset(ag_bin, 0, key_size * 2);
-	memset(apriv_key_bin, 0, key_size * 2);
-	ap_bin = apriv_key_bin + key_size;
-	memset(opdata_a.pri, 0, key_size * 2);
-
-	opdata_a.pvbytes = BN_bn2bin(bpub_key, ag_bin);
-	opdata_a.pv = ag_bin;/* bob's public key here */
-	opdata_a.pbytes = BN_bn2bin(ap, ap_bin);
-	opdata_a.xbytes = BN_bn2bin(apriv_key, apriv_key_bin);
-	opdata_a.x_p = apriv_key_bin;
-	opdata_a.pri = malloc(key_size * 2);
-	if (!opdata_a.pri) {
-		HPRE_TST_PRT("pool alloc opdata_a.pri fail!\n");
-		ret = -1;
-		goto dh_err;
-	}
-	memset(opdata_a.pri, 0, key_size * 2);
-	opdata_a.op_type = WD_DH_PHASE2;
-
-	/* Alice computes private key with HPRE */
-	ret = wd_do_dh(c, &opdata_a, tag);
-	if (ret) {
-		HPRE_TST_PRT("a wd_do_dh fail!\n");
-		goto dh_err;
-	}
-	if (g_config.check) {
-		if (memcmp(abuf, opdata_a.pri, bin_size)) {
-			HPRE_TST_PRT("Alice HPRE DH gen privkey mismatch!\n");
-			ret = -EINVAL;
-#ifdef DEBUG
-			print_data(abuf, key_size, "SOFT");
-			print_data(opdata_a.pri, key_size, "HARDWATE");
-#endif
-			goto dh_err;
-		}
-	}
-
-	ret = 0;
-	HPRE_TST_PRT("HPRE DH generate key sucessfully!\n");
-	dh_err:
-	DH_free(a);
-	DH_free(b);
-	if (ag_bin)
-		free(ag_bin);
-	if (apriv_key_bin)
-		free(apriv_key_bin);
-	if (opdata_a.pri)
-		free(opdata_a.pri);
-
-	if (bg_bin)
-		free(bg_bin);
-	if (bpriv_key_bin)
-		free(bpriv_key_bin);
-	if (opdata_b.pri)
-		free(opdata_b.pri);
-
-	if (apub_key_bin)
-		free(apub_key_bin);
-	if (bpub_key_bin)
-		free(bpub_key_bin);
-	if (abuf)
-		free(abuf);
-	return ret;
-}
-#endif
-
-int hpre_sys_qmng_test(int thread_num)
-{
-	int pid = getpid(), i = 0, ret;
-	int thread_id = (int)syscall(__NR_gettid);
-	struct uacce_dev_list *list, *uacce_node;
-	handle_t h_ctx;
-
-	list = wd_get_accel_list("rsa");
-	if (!list)
-		return -ENODEV;
-
-	uacce_node = get_uacce_dev_by_alg(list, g_config.dev_path);
-	if (!uacce_node)
-		return -ENODEV;
-
-	while (1) {
-		h_ctx = wd_request_ctx(uacce_node->dev);
-		if (!h_ctx) {
-			HPRE_TST_PRT("Proc-%d, thrd-%d:request queue t-%d fail!\n",
-					 pid, thread_id, i);
-			return -1;
-		}
-		i++;
-		if (is_allow_print(i, HPRE_ALG_INVLD_TYPE, thread_num))
-			HPRE_TST_PRT("Proc-%d, %d-TD request %dQs\n",
-				     pid, thread_id, i);
-		usleep(1);
-		wd_release_ctx(h_ctx);
-	}
-
-	wd_free_list_accels(list);
-
-	return 0;
-}
-
 int hpre_sys_func_test(struct test_hpre_pthread_dt * pdata)
 {
 	int pid = getpid(), ret = 0, i = 0;
 	int thread_id = (int)syscall(__NR_gettid);
 	struct wd_rsa_sess_setup setup;
 	struct wd_rsa_req req;
-	void *ctx = NULL;
+	handle_t sess;
 	void *tag = NULL;
 	void *key_info = NULL;
 	struct timeval cur_tval;
@@ -6002,8 +5653,8 @@ new_test_again:
 	else
 		setup.is_crt = false;
 
-	ctx = wd_rsa_alloc_sess(&setup);
-	if (!ctx) {
+	sess = wd_rsa_alloc_sess(&setup);
+	if (!sess) {
 		HPRE_TST_PRT("Proc-%d, %d-TD:create %s ctx fail!\n",
 			     pid, thread_id, alg_name);
 		ret = -EINVAL;
@@ -6036,7 +5687,7 @@ new_test_again:
 			goto fail_release;
 		}
 	#else
-		ret = get_rsa_key_from_test_sample(ctx, NULL, key_info, key_info, 0);
+		ret = get_rsa_key_from_test_sample(sess, NULL, key_info, key_info, 0);
 		if (ret) {
 			HPRE_TST_PRT("thrd-%d:get sample key fail!\n", thread_id);
 			goto fail_release;
@@ -6058,7 +5709,7 @@ new_test_again:
 	}
 
 	if (req.op_type == WD_RSA_GENKEY) {
-		ret = hpre_test_fill_keygen_opdata(ctx, &req);
+		ret = hpre_test_fill_keygen_opdata(sess, &req);
 		if (ret){
 			HPRE_TST_PRT("fill key gen req fail!\n");
 			goto fail_release;
@@ -6080,7 +5731,7 @@ new_test_again:
 
 	do {
 		if (!g_config.soft_test) {
-			ret = wd_do_rsa_sync(ctx, &req);
+			ret = wd_do_rsa_sync(sess, &req);
 			if (ret || req.status) {
 				HPRE_TST_PRT("Proc-%d, T-%d:hpre %s %dth status=%d fail!\n",
 					 pid, thread_id,
@@ -6097,13 +5748,13 @@ new_test_again:
 			if (req.op_type == WD_RSA_SIGN)
 				check_key = key_info;
 			if (req.op_type == WD_RSA_VERIFY)
-				if (wd_rsa_is_crt(ctx))
+				if (wd_rsa_is_crt(sess))
 					check_key = key_info + 5 * (g_config.key_bits >> 4);
 				else
 					check_key = key_info + 2 * key_size;
 			else
 				check_key = key_info;
-			ret = hpre_test_result_check(ctx, &req, check_key);
+			ret = hpre_test_result_check(sess, &req, check_key);
 			if (ret) {
 				HPRE_TST_PRT("P-%d,T-%d:hpre %s %dth mismth\n",
 						 pid, thread_id,
@@ -6147,9 +5798,9 @@ new_test_again:
 		if (!g_config.perf_test && !g_config.soft_test) {
 			if (req.op_type == WD_RSA_GENKEY) {
 				if (req.src)
-					wd_rsa_del_kg_in(ctx, req.src);
+					wd_rsa_del_kg_in(sess, req.src);
 				if (req.dst)
-					wd_rsa_del_kg_out(ctx, req.dst);
+					wd_rsa_del_kg_out(sess, req.dst);
 			} else {
 				if (req.src)
 					free(req.src);
@@ -6157,8 +5808,8 @@ new_test_again:
 					free(req.dst);
 			}
 
-			if (ctx)
-				wd_rsa_free_sess(ctx);
+			if (sess)
+				wd_rsa_free_sess(sess);
 
 			if (rsa_key_in)
 				free(rsa_key_in);
@@ -6193,17 +5844,17 @@ new_test_again:
 fail_release:
 	if (req.op_type == WD_RSA_GENKEY) {
 		if (req.src)
-			wd_rsa_del_kg_in(ctx, req.src);
+			wd_rsa_del_kg_in(sess, req.src);
 		if (req.dst)
-			wd_rsa_del_kg_out(ctx, req.dst);
+			wd_rsa_del_kg_out(sess, req.dst);
 	} else {
 		if (req.src)
 			free(req.src);
 		if (req.dst)
 			free(req.dst);
 	}
-	if (ctx)
-		wd_rsa_free_sess(ctx);
+	if (sess)
+		wd_rsa_free_sess(sess);
 	if (key_info)
 		free(key_info);
 	if (rsa_key_in)
@@ -6239,15 +5890,10 @@ void *_hpre_rsa_sys_test_thread(void *data)
 		HPRE_TST_PRT("Proc-%d, thrd-%d bind to cpu-%d!\n",
 				pid, thread_id, cpuid);
 	}
-	if (op_type == HPRE_ALG_INVLD_TYPE) {
-		ret = hpre_sys_qmng_test(thread_num);
-		if (ret)
-			return NULL;
-	} else {
-		ret = hpre_sys_func_test(pdata);
-		if (ret)
-			return NULL;
-	}
+	ret = hpre_sys_func_test(pdata);
+	if (ret)
+		return NULL;
+
 	return NULL;
 }
 
@@ -6335,7 +5981,7 @@ static void _rsa_cb(struct wd_rsa_req *req)
 {
 	int keybits, key_size;
 	struct rsa_async_tag *tag = req->cb_param;
-	void *ctx = tag->ctx;
+	handle_t sess = tag->sess;
 	int thread_id = tag->thread_id;
 	int cnt = tag->cnt;
 	void *out = req->dst;
@@ -6343,8 +5989,8 @@ static void _rsa_cb(struct wd_rsa_req *req)
 	struct wd_rsa_prikey *prikey;
 	struct test_hpre_pthread_dt *thread_info = tag->thread_info;
 
-	wd_rsa_get_prikey(ctx, &prikey);
-	keybits = wd_rsa_key_bits(ctx);
+	wd_rsa_get_prikey(sess, &prikey);
+	keybits = wd_rsa_key_bits(sess);
 	key_size = keybits >> 3;
 
 	thread_info->recv_task_num++;
@@ -6353,7 +5999,7 @@ static void _rsa_cb(struct wd_rsa_req *req)
 		if (op_type == WD_RSA_GENKEY) {
 			struct wd_rsa_kg_out *kout = out;
 
-			if (wd_rsa_is_crt(ctx)) {
+			if (wd_rsa_is_crt(sess)) {
 				struct wd_dtb qinv, dq, dp;
 				struct wd_dtb *s_qinv, *s_dq, *s_dp;
 
@@ -6398,7 +6044,7 @@ static void _rsa_cb(struct wd_rsa_req *req)
 				return;
 			}
 		} else {
-			if (wd_rsa_is_crt(ctx))
+			if (wd_rsa_is_crt(sess))
 				if (!g_config.soft_test && memcmp(ssl_params.ssl_sign_result, out, key_size)) {
 					HPRE_TST_PRT("prv decrypto result  mismatch!\n");
 					return;
@@ -6409,7 +6055,7 @@ static void _rsa_cb(struct wd_rsa_req *req)
 	if (is_allow_print(cnt, op_type, 1))
 		HPRE_TST_PRT("thread %d do RSA %dth time success!\n", thread_id, cnt);
 	if (op_type == WD_RSA_GENKEY && out) {
-		wd_rsa_del_kg_out(ctx, out);
+		wd_rsa_del_kg_out(sess, out);
 	}
 	free(tag);
 }
@@ -6425,7 +6071,7 @@ void *_rsa_async_op_test_thread(void *data)
 	int thread_id = (int)syscall(__NR_gettid);
 	struct wd_rsa_sess_setup setup;
 	struct wd_rsa_req req;
-	void *ctx = NULL;
+	handle_t sess;
 	void *key_info = NULL;
 	struct wd_rsa_prikey *prikey;
 	struct wd_rsa_pubkey *pubkey;
@@ -6463,8 +6109,8 @@ void *_rsa_async_op_test_thread(void *data)
 	else
 		setup.is_crt = false;
 
-	ctx = wd_rsa_alloc_sess(&setup);
-	if (!ctx) {
+	sess = wd_rsa_alloc_sess(&setup);
+	if (!sess) {
 		HPRE_TST_PRT("Proc-%d, %d-TD:create %s ctx fail!\n",
 			     pid, thread_id, alg_name);
 		goto fail_release;
@@ -6480,7 +6126,7 @@ void *_rsa_async_op_test_thread(void *data)
 	rsa_key_in->p = rsa_key_in->e + key_size;
 	rsa_key_in->q = rsa_key_in->p + (key_size >> 1);
 
-	wd_rsa_get_pubkey(ctx, &pubkey);
+	wd_rsa_get_pubkey(sess, &pubkey);
 	wd_rsa_get_pubkey_params(pubkey, &wd_e, &wd_n);
 
 #ifdef WITH_OPENSSL_DIR
@@ -6500,8 +6146,8 @@ void *_rsa_async_op_test_thread(void *data)
 	memcpy(wd_n->data, ssl_params.n, key_size);
 	wd_n->dsize = key_size;
 #endif
-	wd_rsa_get_prikey(ctx, &prikey);
-	if (wd_rsa_is_crt(ctx)) {
+	wd_rsa_get_prikey(sess, &prikey);
+	if (wd_rsa_is_crt(sess)) {
 		wd_rsa_get_crt_prikey_params(prikey, &wd_dq, &wd_dp, &wd_qinv, &wd_q, &wd_p);
 
 #ifdef WITH_OPENSSL_DIR
@@ -6598,7 +6244,7 @@ void *_rsa_async_op_test_thread(void *data)
 	}
 
 	if (req.op_type == WD_RSA_GENKEY) {
-		req.src = (__u8 *)wd_rsa_new_kg_in(ctx, wd_e, wd_p, wd_q);
+		req.src = (__u8 *)wd_rsa_new_kg_in(sess, wd_e, wd_p, wd_q);
 		if (!req.src) {
 			HPRE_TST_PRT("thrd-%d:fill key gen req fail!\n",
 				     thread_id);
@@ -6626,7 +6272,7 @@ void *_rsa_async_op_test_thread(void *data)
 
 	do {
 			if (req.op_type == WD_RSA_GENKEY) {
-				req.dst = wd_rsa_new_kg_out(ctx);
+				req.dst = wd_rsa_new_kg_out(sess);
 				if (!req.dst) {
 					HPRE_TST_PRT("create rsa kgen out fail!\n");
 					goto fail_release;
@@ -6636,13 +6282,13 @@ void *_rsa_async_op_test_thread(void *data)
 			tag = malloc(sizeof(*tag));
 			if (!tag)
 				goto fail_release;
-			tag->ctx = ctx;
+			tag->sess = sess;
 			tag->thread_id = thread_id;
 			tag->cnt = i;
 			tag->thread_info = pdata;
 			req.cb_param = tag;
 try_do_again:
-			ret = wd_do_rsa_async(ctx, &req);
+			ret = wd_do_rsa_async(sess, &req);
 			if (ret == -WD_EBUSY) {
 				usleep(100);
 				goto try_do_again;
@@ -6685,7 +6331,7 @@ try_do_again:
 fail_release:
 	if (req.op_type == WD_RSA_GENKEY) {
 		if (req.src)
-			wd_rsa_del_kg_in(ctx, req.src);
+			wd_rsa_del_kg_in(sess, req.src);
 		//if (req.dst)
 		//	wd_rsa_del_kg_out(ctx, req.dst);
 	} else {
@@ -6694,8 +6340,8 @@ fail_release:
 		if (req.dst)
 			free(req.dst);
 	}
-	if (ctx)
-		wd_rsa_free_sess(ctx);
+	if (sess)
+		wd_rsa_free_sess(sess);
 	if (key_info)
 		free(key_info);
 	if (rsa_key_in)
@@ -7044,15 +6690,14 @@ static int rsa_async_test(int thread_num, __u64 lcore_mask,
 	return 0;
 }
 
-#if 0 /* will be added later */
 static void *_dh_async_poll_test_thread(void *data)
 {
 	struct test_hpre_pthread_dt *pdata = data;
-	struct wd_queue *q = pdata->q;
 	int ret, cpuid;
 	int pid = getpid();
 	cpu_set_t mask;
 	int thread_id = (int)syscall(__NR_gettid);
+	__u32 count = 0;
 
 	CPU_ZERO(&mask);
 	cpuid = pdata->cpu_id;
@@ -7069,7 +6714,7 @@ static void *_dh_async_poll_test_thread(void *data)
 	}
 
 	while (1) {
-		ret = wd_dh_poll(q, 1);
+		ret = wd_dh_poll(0, &count);
 		if (ret < 0) {
 			break;
 		}
@@ -7085,38 +6730,10 @@ static void *_dh_async_poll_test_thread(void *data)
 static int dh_async_test(int thread_num, __u64 lcore_mask,
 			 __u64 hcore_mask, enum alg_op_type op_type)
 {
-	void *bufPool;
-	struct wd_blkpool_setup setup;
 	struct timeval end;
 	int i, ret, cnt = 0;
-	int block_num = 1024*16;
-	struct wd_queue *q;
 	int h_cpuid;
 	float speed = 0.0;
-
-	q = malloc(sizeof(struct wd_queue));
-	if (!q) {
-		HPRE_TST_PRT("malloc q memory fail!\n");
-		return -ENOMEM;
-	}
-	memset(q, 0, sizeof(struct wd_queue));
-
-	q->capa.alg = "dh";
-	ret = wd_request_queue(q);
-	if (ret) {
-		HPRE_TST_PRT("request queue fail!\n");
-		return ret;
-	}
-	memset(&setup, 0, sizeof(setup));
-	setup.block_size = key_bits >> 2; // block_size;
-	setup.block_num = block_num;
-	setup.align_size = 64;
-
-	bufPool = wd_blkpool_create(q, &setup);
-	if (!bufPool) {
-		HPRE_TST_PRT("%s(): create pool fail!\n", __func__);
-		return -ENOMEM;
-	}
 
 	if (_get_one_bits(lcore_mask) > 0)
 		cnt =  _get_one_bits(lcore_mask);
@@ -7125,8 +6742,6 @@ static int dh_async_test(int thread_num, __u64 lcore_mask,
 		cnt = thread_num;
 
 	/* Create poll thread at first */
-	test_thrds_data[0].pool = bufPool;
-	test_thrds_data[0].q = q;
 	test_thrds_data[0].thread_num = 1;
 	test_thrds_data[0].op_type = op_type;
 	test_thrds_data[0].cpu_id = 0;
@@ -7138,8 +6753,6 @@ static int dh_async_test(int thread_num, __u64 lcore_mask,
 	}
 
 	for (i = 1; i <= cnt; i++) {
-		test_thrds_data[i].pool = bufPool;
-		test_thrds_data[i].q = q;
 		test_thrds_data[i].thread_num = thread_num;
 		test_thrds_data[i].op_type = op_type;
 		test_thrds_data[i].cpu_id = _get_cpu_id(i - 1, lcore_mask);
@@ -7157,8 +6770,6 @@ static int dh_async_test(int thread_num, __u64 lcore_mask,
 		if (h_cpuid > 0)
 			h_cpuid += 64;
 
-		test_thrds_data[i + cnt].pool = bufPool;
-		test_thrds_data[i + cnt].q = q;
 		test_thrds_data[i + cnt].thread_num = thread_num;
 		test_thrds_data[i + cnt].op_type = op_type;
 		test_thrds_data[i + cnt].cpu_id = h_cpuid;
@@ -7177,7 +6788,7 @@ static int dh_async_test(int thread_num, __u64 lcore_mask,
 			HPRE_TST_PRT("Join %dth thread fail!\n", i);
 			return ret;
 		}
-		speed += test_thrds_data[i];
+		speed += test_thrds_data[i].perf;
 	}
 
 	asyn_thread_exit = 1;
@@ -7197,6 +6808,7 @@ static int dh_async_test(int thread_num, __u64 lcore_mask,
 	return 0;
 }
 
+#if 0
 static void *_ecc_async_poll_test_thread(void *data)
 {
 	struct test_hpre_pthread_dt *pdata = data;
@@ -7382,7 +6994,7 @@ void *_hpre_sys_test_thread(void *data)
 	if (op_type > MAX_DH_TYPE && op_type < MAX_ECC_TYPE) {
 		// return _ecc_sys_test_thread(data); will be added later
 	} else if (op_type > MAX_RSA_ASYNC_TYPE && op_type < MAX_DH_TYPE) {
-		// return _hpre_dh_sys_test_thread(data); will be added later
+		return _hpre_dh_sys_test_thread(data);
 	} else {
 		return _hpre_rsa_sys_test_thread(data);
 	}
@@ -7643,9 +7255,8 @@ int main(int argc, char *argv[])
 		return rsa_async_test(g_config.trd_num, g_config.core_mask[0],
 			g_config.core_mask[1], alg_op_type);
 	else if (alg_op_type == DH_ASYNC_GEN || alg_op_type == DH_ASYNC_COMPUTE)
-		return 0;
-		//return dh_async_test(thread_num, core_mask[0],
-					//      core_mask[1], alg_op_type); will be added later
+		return dh_async_test(g_config.trd_num, g_config.core_mask[0],
+					      g_config.core_mask[1], alg_op_type);
 	else if (alg_op_type == ECDH_ASYNC_GEN || alg_op_type == ECDH_ASYNC_COMPUTE ||
 		alg_op_type == ECDSA_ASYNC_SIGN || alg_op_type == ECDSA_ASYNC_VERF ||
 		alg_op_type == X25519_ASYNC_GEN || alg_op_type == X25519_ASYNC_COMPUTE ||
