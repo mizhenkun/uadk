@@ -211,7 +211,7 @@ int lib_poll_func(__u32 pos, __u32 expect, __u32 *count)
 {
 	int ret;
 
-	ret = wd_comp_poll_ctx(g_conf->ctxs[pos].ctx, expect, count);
+	ret = wd_comp_poll_ctx(pos, expect, count);
 	if (ret < 0)
 		return ret;
 	return 0;

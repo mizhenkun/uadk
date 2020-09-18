@@ -168,7 +168,7 @@ void wd_comp_uninit(void)
 	wd_clear_ctx_config(&wd_comp_setting.config);
 }
 
-int wd_comp_poll_ctx(int index, __u32 expt, __u32 *count)
+int wd_comp_poll_ctx(__u32 index, __u32 expt, __u32 *count)
 {
 	handle_t h_ctx = wd_comp_setting.config.ctxs[index].ctx;
 	struct wd_comp_msg resp_msg, *msg;

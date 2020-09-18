@@ -119,7 +119,7 @@ extern int wd_do_comp_async(handle_t h_sess, struct wd_comp_req *req);
  * User defines polling policy in poll_policiy, when it needs to poll a
  * specific ctx, this function should be used.
  */
-extern int wd_comp_poll_ctx(int index, __u32 expt, __u32 *count);
+extern int wd_comp_poll_ctx(__u32 index, __u32 expt, __u32 *count);
 
 extern int wd_comp_poll(__u32 expt, __u32 *count);
 
