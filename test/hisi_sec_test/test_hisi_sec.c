@@ -24,7 +24,6 @@
 
 static struct wd_ctx_config g_ctx_cfg;
 static struct wd_sched g_sched;
-static struct wd_digest_sched dg_sched;
 
 static long long int g_times;
 static unsigned int g_thread_num;
@@ -264,13 +263,15 @@ int get_cipher_resource(struct cipher_testvec **alg_tv, int* alg, int* mode)
 	return 0;
 }
 
-static handle_t sched_single_pick_next_ctx(struct wd_ctx_config *cfg,
-		void *sched_ctx, struct wd_cipher_req *req, int numa_id)
+static __u32 sched_single_pick_next_ctx(handle_t h_sched_ctx, const void *req,
+					const struct sched_key *key)
 {
-	return g_ctx_cfg.ctxs[0].ctx;
+	return 0;
 }
 
-static int sched_single_poll_policy(struct wd_ctx_config *cfg, __u32 expect, __u32 *count)
+static int sched_single_poll_policy(handle_t h_sched_ctx,
+				    const struct wd_ctx_config *config,
+				    __u32 expect, __u32 *count)
 {
 	return 0;
 }
@@ -980,16 +981,18 @@ out_thr:
 	return ret;
 }
 
-/* ------------------------------digest alg, nomal mode and hmac mode------------------ */
-static handle_t sched_digest_pick_next_ctx(struct wd_ctx_config *cfg,
-		void *sched_ctx, struct wd_digest_req *req, int numa_id)
+/* ------------------digest alg, nomal mode and hmac mode------------------ */
+static __u32 sched_digest_pick_next_ctx(handle_t h_sched_ctx, const void *req,
+					const struct sched_key *key)
 {
-	return g_ctx_cfg.ctxs[0].ctx;
+	/* alway return first ctx */
+	return 0;
 }
 
-static int init_digest_ctx_config(int type, int mode, struct wd_digest_sched *sched)
+static int init_digest_ctx_config(int type, int mode)
 {
 	struct uacce_dev_list *list;
+	struct wd_sched sched;
 	int ret;
 
 	list = wd_get_accel_list("digest");
@@ -1013,12 +1016,11 @@ static int init_digest_ctx_config(int type, int mode, struct wd_digest_sched *sc
 	g_ctx_cfg.ctxs[0].op_type = type;
 	g_ctx_cfg.ctxs[0].ctx_mode = mode;
 
-	sched->name = SCHED_SINGLE;
-	sched->pick_next_ctx = sched_digest_pick_next_ctx;
-	sched->sched_ctx_size = 1;
-	sched->poll_policy = sched_single_poll_policy;
+	sched.name = SCHED_SINGLE;
+	sched.pick_next_ctx = sched_digest_pick_next_ctx;
+	sched.poll_policy = sched_single_poll_policy;
 	/* digest init */
-	ret = wd_digest_init(&g_ctx_cfg, sched);
+	ret = wd_digest_init(&g_ctx_cfg, &sched);
 	if (ret) {
 		printf("Fail to digest ctx!\n");
 		goto out;
@@ -1220,7 +1222,7 @@ static int sec_digest_sync_once(void)
 	int ret;
 
 	/* config setup */
-	ret = init_digest_ctx_config(CTX_TYPE_ENCRYPT, CTX_MODE_SYNC, &dg_sched);
+	ret = init_digest_ctx_config(CTX_TYPE_ENCRYPT, CTX_MODE_SYNC);
 	if (ret) {
 		printf("Fail to init sigle ctx config!\n");
 		return ret;
@@ -1415,7 +1417,7 @@ static int sec_digest_async_once(void)
 	int ret;
 
 	/* config setup */
-	ret = init_digest_ctx_config(CTX_TYPE_ENCRYPT, CTX_MODE_SYNC, &dg_sched);
+	ret = init_digest_ctx_config(CTX_TYPE_ENCRYPT, CTX_MODE_SYNC);
 	if (ret) {
 		printf("Fail to init sigle ctx config!\n");
 		return ret;
@@ -1512,7 +1514,7 @@ static int sec_digest_sync_multi(void)
 	int i, ret;
 
 	/* config setup */
-	ret = init_digest_ctx_config(CTX_TYPE_ENCRYPT, CTX_MODE_SYNC, &dg_sched);
+	ret = init_digest_ctx_config(CTX_TYPE_ENCRYPT, CTX_MODE_SYNC);
 	if (ret) {
 		printf("Fail to init sigle ctx config!\n");
 		return ret;
@@ -1619,7 +1621,7 @@ static int sec_digest_async_multi(void)
 	int i, ret;
 
 	/* config setup */
-	ret = init_digest_ctx_config(CTX_TYPE_ENCRYPT, CTX_MODE_SYNC, &dg_sched);
+	ret = init_digest_ctx_config(CTX_TYPE_ENCRYPT, CTX_MODE_SYNC);
 	if (ret) {
 		printf("Fail to init sigle ctx config!\n");
 		return ret;

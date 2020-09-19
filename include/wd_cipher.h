@@ -125,11 +125,11 @@ extern int wd_do_cipher_async(handle_t h_sess, struct wd_cipher_req *req);
 
 /**
  * wd_cipher_poll_ctx() poll operation for asynchronous operation
- * @ctx: wd cipher context, the ctx which whill be polled.
+ * @index: index of ctx which will be polled.
  * @expt: user expected num respondings
  * @count: how many respondings this poll has to get.
  */
-extern int wd_cipher_poll_ctx(handle_t ctx, __u32 expt, __u32* count);
+extern int wd_cipher_poll_ctx(__u32 index, __u32 expt, __u32* count);
 
 /**
  * wd_cipher_poll() Poll finished request.

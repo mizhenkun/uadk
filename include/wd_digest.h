@@ -84,14 +84,6 @@ struct wd_digest_req {
 	void		*cb_param;
 };
 
-struct wd_digest_sched {
-	const char *name;
-	__u32 sched_ctx_size;
-	handle_t (*pick_next_ctx)(struct wd_ctx_config *config,
-		void *sched_ctx, struct wd_digest_req *req, int numa_id);
-	int (*poll_policy)(struct wd_ctx_config *config, __u32 expect, __u32 *count);
-};
-
 struct wd_cb_tag {
 	void *ctx;	/* user: context or other user relatives */
 	void *tag;	/* to store user tag */
@@ -105,7 +97,7 @@ struct wd_digest_tag {
 	void *priv;
 };
 
-int wd_digest_init(struct wd_ctx_config *config, struct wd_digest_sched *sched);
+int wd_digest_init(struct wd_ctx_config *config, struct wd_sched *sched);
 void wd_digest_uninit(void);
 
 /**
@@ -146,11 +138,11 @@ int wd_digest_set_key(handle_t h_sess, const __u8 *key, __u32 key_len);
 
 /**
  * wd_digest_poll() - Poll operation for asynchronous operation.
- * @h_ctx: context
+ * @index: index of ctx which will be polled.
  * @expt: Count of polling
  * @count: recv poll nums.
  */
-int wd_digest_poll_ctx(handle_t h_ctx, __u32 expt, __u32 *count);
+int wd_digest_poll_ctx(__u32 index, __u32 expt, __u32 *count);
 
 /**
  * wd_digest_poll() - Poll operation for asynchronous operation.
