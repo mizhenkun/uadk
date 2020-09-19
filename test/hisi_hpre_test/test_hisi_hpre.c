@@ -1492,9 +1492,9 @@ static struct hpre_dh_test_ctx *create_hw_gen_key_test_ctx(struct hpre_dh_test_c
 	test_ctx->priv = (void *)setup.sess;
 	test_ctx->key_size = key_size;
 
-	ret = wd_set_dh_g(test_ctx->priv, &ctx_g);
+	ret = wd_dh_set_g(test_ctx->priv, &ctx_g);
 	if (ret) {
-		HPRE_TST_PRT("wd_set_dh_g failed\n");
+		HPRE_TST_PRT("wd_dh_set_g failed\n");
 		goto exit_free;
 	}
 
@@ -5681,7 +5681,7 @@ new_test_again:
 	memset(key_info, 0, key_size * 16);
 
 	#ifdef WITH_OPENSSL_DIR
-		ret = test_rsa_key_gen(ctx, NULL, key_info, key_info, 0);
+		ret = test_rsa_key_gen(sess, NULL, key_info, key_info, 0);
 		if (ret) {
 			HPRE_TST_PRT("thrd-%d:Openssl key gen fail!\n", thread_id);
 			goto fail_release;
