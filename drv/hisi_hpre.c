@@ -611,7 +611,7 @@ static int dh_out_transfer(struct wd_dh_msg *msg,
 	else
 		out = req->pri;
 
-	ret = hpre_bin_to_crypto_bin((char *)req->pri,
+	ret = hpre_bin_to_crypto_bin((char *)out,
 		(const char *)out, key_bytes);
 	if (!ret)
 		return -WD_EINVAL;

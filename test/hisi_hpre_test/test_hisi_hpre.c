@@ -5775,6 +5775,7 @@ new_test_again:
 			HPRE_TST_PRT("alloc out buffer fail!\n");
 			goto fail_release;
 		}
+		req->dst_bytes = key_size;
 	}
 
 	do {
@@ -6316,6 +6317,7 @@ void *_rsa_async_op_test_thread(void *data)
 			goto fail_release;
 		}
 		memset(req.dst, 0, req.src_bytes);
+		req.dst_bytes = key_size;
 	}
 
 	do {
