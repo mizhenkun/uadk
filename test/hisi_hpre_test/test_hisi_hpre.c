@@ -1051,8 +1051,15 @@ static __u8 is_async_test(__u32 opType)
 __u32 hpre_pick_next_ctx(handle_t sched_ctx,
 				struct wd_rsa_req *req, struct sched_key *key)
 {
+	static int last_ctx = 0;
 
-	return 0;
+	if (!strncmp(g_config.trd_mode, "async", 5))
+		return 0;
+
+	if (++last_ctx == g_ctx_cfg.ctx_num)
+		last_ctx = 0;
+
+	return last_ctx;
 }
 
 int rsa_poll_policy(handle_t h_sched_ctx, struct wd_ctx_config *config, __u32 expect, __u32 *count)
@@ -6024,6 +6031,9 @@ static void  *_rsa_async_poll_test_thread(void *data)
 			break;
 	}
 
+	if (g_config.with_log)
+		HPRE_TST_PRT("%s exit!\n", __func__);
+
 	return NULL;
 }
 static void _rsa_cb(struct wd_rsa_req *req)
@@ -6777,7 +6787,8 @@ static void *_dh_async_poll_test_thread(void *data)
 			break;
 	}
 
-	HPRE_TST_PRT("%s exit!\n", __func__);
+	if (g_config.with_log)
+		HPRE_TST_PRT("%s exit!\n", __func__);
 	return NULL;
 }
 
@@ -6907,7 +6918,8 @@ static void *_ecc_async_poll_test_thread(void *data)
 			break;
 	}
 
-	HPRE_TST_PRT("%s exit!\n", __func__);
+	if (g_config.with_log)
+		HPRE_TST_PRT("%s exit!\n", __func__);
 	return NULL;
 }
 
@@ -7196,6 +7208,11 @@ static int parse_cmd_line(int argc, char *argv[])
 		}
         }
 
+        if (g_config.perf_test) {
+        	g_config.check = 0;
+        	g_config.with_log = 0;
+        }
+
 	return ret;
 }
 
@@ -7296,6 +7313,8 @@ int main(int argc, char *argv[])
 		g_config.core_mask[0]);
 	HPRE_TST_PRT(">> cycles = %u\n", g_config.times);
 	HPRE_TST_PRT(">> seconds = %u\n", g_config.seconds);
+	if (g_config.perf_test)
+		HPRE_TST_PRT(">> perf test, check and log closed\n");
 
 	if (alg_op_type < MAX_RSA_SYNC_TYPE ||
 		alg_op_type == DH_GEN || alg_op_type == DH_COMPUTE ||
