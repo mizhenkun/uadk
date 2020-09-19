@@ -5775,7 +5775,7 @@ new_test_again:
 			HPRE_TST_PRT("alloc out buffer fail!\n");
 			goto fail_release;
 		}
-		req->dst_bytes = key_size;
+		req.dst_bytes = key_size;
 	}
 
 	do {
