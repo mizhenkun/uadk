@@ -302,7 +302,7 @@ int wd_do_cipher_sync(handle_t h_sess, struct wd_cipher_req *req)
 	}
 
 	index = g_wd_cipher_setting.sched.pick_next_ctx(0, req, NULL);
-	if (index > config->ctx_num) {
+	if (index >= config->ctx_num) {
 		WD_ERR("fail to pick a proper ctx!\n");
 		return -EINVAL;
 	}
@@ -359,7 +359,7 @@ int wd_do_cipher_async(handle_t h_sess, struct wd_cipher_req *req)
 	}
 
 	index = g_wd_cipher_setting.sched.pick_next_ctx(0, req, NULL);
-	if (unlikely(index > config->ctx_num)) {
+	if (unlikely(index >= config->ctx_num)) {
 		WD_ERR("fail to pick a proper ctx!\n");
 		return -EINVAL;
 	}
@@ -434,7 +434,6 @@ int wd_cipher_poll_ctx(__u32 index, __u32 expt, __u32* count)
 
 int wd_cipher_poll(__u32 expt, __u32 *count)
 {
-	struct wd_ctx_config_internal *config = &g_wd_cipher_setting.config;
 	int ret;
 
 	ret = g_wd_cipher_setting.sched.poll_policy(0, 0, expt, count);

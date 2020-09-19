@@ -238,7 +238,7 @@ int wd_do_digest_sync(handle_t h_sess, struct wd_digest_req *req)
 
 	/* fix me: maybe wrong */
 	index = g_wd_digest_setting.sched.pick_next_ctx(0, req, NULL);
-	if (index > config->ctx_num) {
+	if (index >= config->ctx_num) {
 		WD_ERR("fail to pick next ctx!\n");
 		return -EINVAL;
 	}
@@ -295,7 +295,7 @@ int wd_do_digest_async(handle_t h_sess, struct wd_digest_req *req)
         }
 
 	index = g_wd_digest_setting.sched.pick_next_ctx(0, req, NULL);
-	if (unlikely(index > config->ctx_num)) {
+	if (unlikely(index >= config->ctx_num)) {
 		WD_ERR("fail to pick next ctx!\n");
 		return -EINVAL;
 	}
@@ -334,7 +334,7 @@ int wd_digest_poll_ctx(__u32 index, __u32 expt, __u32 *count)
 	__u32 recv_cnt = 0;
 	int ret;
 
-	if (unlikely(index > config->ctx_num || !count)) {
+	if (unlikely(index >= config->ctx_num || !count)) {
 		WD_ERR("digest input poll ctx or count is NULL.\n");
 		return -EINVAL;
 	}
