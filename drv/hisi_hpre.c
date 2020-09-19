@@ -600,11 +600,19 @@ static int fill_dh_xp_params(struct wd_dh_msg *msg,
 static int dh_out_transfer(struct wd_dh_msg *msg,
 			   struct hisi_hpre_sqe *hw_msg)
 {
+	__u16 key_bytes = (hw_msg->task_len1 + 1) * BYTE_BITS;
 	struct wd_dh_req *req = &msg->req;
+	void *out;
 	int ret;
 
+	/* async */
+	if (hw_msg->tag)
+		out = VA_ADDR(hw_msg->hi_out, hw_msg->low_out);
+	else
+		out = req->pri;
+
 	ret = hpre_bin_to_crypto_bin((char *)req->pri,
-		(const char *)req->pri, msg->key_bytes);
+		(const char *)out, key_bytes);
 	if (!ret)
 		return -WD_EINVAL;
 

@@ -444,7 +444,7 @@ static int fill_rsa_msg(struct wd_rsa_msg *msg, struct wd_rsa_req *req,
 		return -WD_EINVAL;
 	}
 
-	if (!key) {
+	if (unlikely(!key)) {
 		WD_ERR("rsa msguest key null!\n");
 		return -WD_EINVAL;
 	}
@@ -455,6 +455,12 @@ static int fill_rsa_msg(struct wd_rsa_msg *msg, struct wd_rsa_req *req,
 			WD_ERR("sign or verf src_bytes != key_size!\n");
 			return -WD_EINVAL;
 		}
+
+		if (unlikely(req->dst_bytes < sess->key_size)) {
+			WD_ERR("req dst bytes =%hu error!\n", req->dst_bytes);
+			return -EINVAL;
+		}
+
 	}
 
 	msg->key = key;
@@ -508,6 +514,7 @@ static int rsa_recv_sync(handle_t ctx, struct wd_rsa_msg *msg)
 
 	balance = rx_cnt;
 	req->status = msg->result;
+	req->dst_bytes = msg->req.dst_bytes;
 
 	return GET_NEGATIVE(req->status);
 }

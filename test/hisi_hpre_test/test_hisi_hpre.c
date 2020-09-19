@@ -1035,7 +1035,9 @@ static __u32 get_ecc_min_blocksize(__u32 key_bits)
 
 static __u8 is_async_test(__u32 opType)
 {
-	if (opType == ECDSA_SIGN || opType == ECDSA_VERF ||
+	if (opType == RSA_KEY_GEN || opType == RSA_PUB_EN || opType == RSA_PRV_DE ||
+		opType == DH_GEN || opType == DH_COMPUTE ||
+		opType == ECDSA_SIGN || opType == ECDSA_VERF ||
 		opType == SM2_SIGN || opType == SM2_VERF ||
 		opType == SM2_ENC || opType == SM2_DEC ||
 		opType == ECDH_GEN || opType == ECDH_COMPUTE ||
@@ -1046,14 +1048,14 @@ static __u8 is_async_test(__u32 opType)
 	return true;
 }
 
-__u32 rsa_pick_next_ctx(handle_t sched_ctx,
+__u32 hpre_pick_next_ctx(handle_t sched_ctx,
 				struct wd_rsa_req *req, struct sched_key *key)
 {
 
 	return 0;
 }
 
-int poll_policy(handle_t h_sched_ctx, struct wd_ctx_config *config, __u32 expect, __u32 *count)
+int rsa_poll_policy(handle_t h_sched_ctx, struct wd_ctx_config *config, __u32 expect, __u32 *count)
 {
 	int ret;
 	struct wd_ctx *ctxs;
@@ -1064,6 +1066,30 @@ int poll_policy(handle_t h_sched_ctx, struct wd_ctx_config *config, __u32 expect
 			ctxs = &g_ctx_cfg.ctxs[i];
 			if (ctxs->ctx_mode == CTX_MODE_ASYNC) {
 				ret = wd_rsa_poll_ctx(i, 1, count);
+				if (ret != -EAGAIN && ret < 0) {
+					HPRE_TST_PRT("fail poll ctx %d!\n", i);	
+					return ret;
+				}
+			}
+		}
+
+		break;
+	}
+
+	return 0;
+}
+
+int dh_poll_policy(handle_t h_sched_ctx, struct wd_ctx_config *config, __u32 expect, __u32 *count)
+{
+	int ret;
+	struct wd_ctx *ctxs;
+	int i;
+
+	while (1) {
+		for (i = 0; i < g_ctx_cfg.ctx_num; i++) {
+			ctxs = &g_ctx_cfg.ctxs[i];
+			if (ctxs->ctx_mode == CTX_MODE_ASYNC) {
+				ret = wd_dh_poll_ctx(i, 1, count);
 				if (ret != -EAGAIN && ret < 0) {
 					HPRE_TST_PRT("fail poll ctx %d!\n", i);	
 					return ret;
@@ -1115,21 +1141,24 @@ static struct uacce_dev_list *get_uacce_dev_by_alg(struct uacce_dev_list *list,
 
 }
 
-static int init_hpre_global_config(void)
+static int init_hpre_global_config(__u32 op_type)
 {
-	struct uacce_dev_list *list, *uacce_node;
+	struct uacce_dev_list *list = NULL;
+	struct uacce_dev_list *uacce_node;
 	struct wd_ctx *ctx_attr;
 	struct wd_sched sched;
 	int ctx_num = g_config.trd_num;
-	__u32 op_type = 0;
 	int ret;
 	int j;
 
 #ifdef DEBUG
-		HPRE_TST_PRT("%s req %d ctx!\n", g_config.dev_path, ctx_num);
+	HPRE_TST_PRT("%s req %d ctx!\n", g_config.dev_path, ctx_num);
 #endif
 
-	list = wd_get_accel_list("rsa");
+	if (op_type > HPRE_ALG_INVLD_TYPE && op_type < MAX_RSA_ASYNC_TYPE)
+		list = wd_get_accel_list("rsa");
+	else if (op_type > MAX_RSA_ASYNC_TYPE && op_type < MAX_DH_TYPE)
+		list = wd_get_accel_list("dh");
 	if (!list)
 		return -ENODEV;
 
@@ -1156,13 +1185,17 @@ static int init_hpre_global_config(void)
 
 	g_ctx_cfg.ctx_num = ctx_num;
 	g_ctx_cfg.ctxs = ctx_attr;
-	sched.name = "rsa-sched-0";
-	sched.pick_next_ctx = rsa_pick_next_ctx;
-	//sched.sched_ctx_size = 1;
-	sched.poll_policy = poll_policy;
-	ret = wd_rsa_init(&g_ctx_cfg, &sched);
+	sched.name = "hpre-sched-0";
+	sched.pick_next_ctx = hpre_pick_next_ctx;
+	if (op_type > HPRE_ALG_INVLD_TYPE && op_type < MAX_RSA_ASYNC_TYPE) {
+		sched.poll_policy = rsa_poll_policy;
+		ret = wd_rsa_init(&g_ctx_cfg, &sched);
+	} else if (op_type > MAX_RSA_ASYNC_TYPE && op_type < MAX_DH_TYPE) {
+		sched.poll_policy = dh_poll_policy;
+		ret = wd_dh_init(&g_ctx_cfg, &sched);
+	}
 	if (ret) {
-		HPRE_TST_PRT("failed to init rsa, ret %d!\n", ret);
+		HPRE_TST_PRT("failed to init alg, ret %d!\n", ret);
 		return -1;
 	}
 
@@ -1172,9 +1205,12 @@ static int init_hpre_global_config(void)
 
 }
 
-static void uninit_hpre_global_config(void)
+static void uninit_hpre_global_config(__u32 op_type)
 {
-	wd_rsa_uninit();
+	if (op_type > HPRE_ALG_INVLD_TYPE && op_type < MAX_RSA_ASYNC_TYPE)
+		wd_rsa_uninit();
+	else if (op_type > MAX_RSA_ASYNC_TYPE && op_type < MAX_DH_TYPE)
+		wd_dh_uninit();
 }
 
 static int init_opdata_param(struct wd_dh_req *req,
@@ -1207,6 +1243,7 @@ static int init_opdata_param(struct wd_dh_req *req,
 		return -ENOMEM;
 	}
 	memset(req->pri, 0, 2 * key_size);
+	req->pri_bytes = 2 * key_size;
 
 	return 0;
 }
@@ -1887,6 +1924,7 @@ static void _dh_cb(struct wd_dh_req *req)
 	}
 
 	if (g_config.check) {
+		((struct wd_dh_req *)test_ctx->req)->pri_bytes = req->pri_bytes;
 		ret = dh_result_check(test_ctx);
 		if (ret) {
 			failTimes++;
@@ -2133,6 +2171,8 @@ new_test_again:
 				}
 
 				hpre_dh_del_test_ctx(test_ctx);
+				if (is_exit(pdata))
+					return 0;
 				goto new_test_again;
 			}
 		} else {
@@ -2162,8 +2202,12 @@ new_test_again:
 	}
 
 	/* wait for recv finish */
-	while (pdata->send_task_num != pdata->recv_task_num)
-		usleep(1000);
+	while (pdata->send_task_num != pdata->recv_task_num) {
+		usleep(1000 * 1000);
+		if (g_config.with_log)
+			HPRE_TST_PRT("<< Proc-%d, %d-TD: total send %u: recv %u, wait recv finish...!\n",
+				pdata->send_task_num, pdata->recv_task_num);			
+	}
 
 fail_release:
 	if (opType == DH_ASYNC_GEN ||
@@ -4757,8 +4801,12 @@ new_test_with_no_req_ctx: // async test
 	}
 
 	/* wait for recv finish */
-	while (pdata->send_task_num != pdata->recv_task_num)
-		usleep(1000);
+	while (pdata->send_task_num != pdata->recv_task_num) {
+		usleep(1000 * 1000);
+		if (g_config.with_log)
+			HPRE_TST_PRT("<< Proc-%d, %d-TD: total send %u: recv %u, wait recv finish...!\n",
+				pdata->send_task_num, pdata->recv_task_num);			
+	}
 
 	ret = 0;
 
@@ -6324,8 +6372,12 @@ try_do_again:
 	}
 
 	/* wait for recv finish */
-	while (pdata->send_task_num != pdata->recv_task_num)
-		usleep(1000);
+	while (pdata->send_task_num != pdata->recv_task_num) {
+		usleep(1000 * 1000);
+		if (g_config.with_log)
+			HPRE_TST_PRT("<< Proc-%d, %d-TD: total send %u: recv %u, wait recv finish...!\n",
+				pdata->send_task_num, pdata->recv_task_num);			
+	}
 
 
 fail_release:
@@ -6745,6 +6797,7 @@ static int dh_async_test(int thread_num, __u64 lcore_mask,
 	test_thrds_data[0].thread_num = 1;
 	test_thrds_data[0].op_type = op_type;
 	test_thrds_data[0].cpu_id = 0;
+	gettimeofday(&test_thrds_data[0].start_tval, NULL);
 	ret = pthread_create(&system_test_thrds[0], NULL,
 			     _dh_async_poll_test_thread, &test_thrds_data[0]);
 	if (ret) {
@@ -6799,7 +6852,7 @@ static int dh_async_test(int thread_num, __u64 lcore_mask,
 		return ret;
 	}
 
-	if (!g_config.perf_test)
+	if (g_config.perf_test)
 		HPRE_TST_PRT("<< %s %u thread %s %s mode %u key_bits at %0.3f ops!\n",
 			g_config.trd_mode, g_config.trd_num, g_config.op,
 			g_config.alg_mode, g_config.key_bits, speed);
@@ -7015,7 +7068,7 @@ static int parse_cmd_line(int argc, char *argv[])
             {"mode",  	required_argument, 0,  0 },
             {"dev_path",  required_argument, 0,  0 },
             {"key_bits", required_argument,       0,  0 },
-            {"times",  required_argument, 0, 0},
+            {"cycles",  required_argument, 0, 0},
             {"seconds",    required_argument, 0,  0 },
             {"log",    required_argument, 0,  0 },
             {"check",    required_argument, 0,  0 },
@@ -7154,12 +7207,6 @@ int main(int argc, char *argv[])
 	if (ret)
 		return -1;
 
-  	ret = init_hpre_global_config();
-  	if (ret) {
-  		HPRE_TST_PRT("failed to init_hpre_global_config, ret %d!\n", ret);
-  		return -1;
-  	}
-
 	if (!strcmp(g_config.op, "rsa-gen")) {
 		if (!strcmp(g_config.trd_mode, "async"))
 			alg_op_type = RSA_ASYNC_GEN;
@@ -7233,6 +7280,11 @@ int main(int argc, char *argv[])
 	else if (alg_op_type >= X448_GEN && alg_op_type <= X448_ASYNC_COMPUTE)
 		g_config.key_bits = 448;
 
+  	ret = init_hpre_global_config(alg_op_type);
+  	if (ret) {
+  		HPRE_TST_PRT("failed to init_hpre_global_config, ret %d!\n", ret);
+  		return -1;
+  	}
 
 	HPRE_TST_PRT(">> test start run %s :\n", g_config.op);
 	HPRE_TST_PRT(">> key_bits = %u\n", g_config.key_bits);
@@ -7240,7 +7292,7 @@ int main(int argc, char *argv[])
 	HPRE_TST_PRT(">> trd_num = %u\n", g_config.trd_num);
 	HPRE_TST_PRT(">> core_mask = [0x%llx][0x%llx]\n", g_config.core_mask[1],
 		g_config.core_mask[0]);
-	HPRE_TST_PRT(">> times = %u\n", g_config.times);
+	HPRE_TST_PRT(">> cycles = %u\n", g_config.times);
 	HPRE_TST_PRT(">> seconds = %u\n", g_config.seconds);
 
 	if (alg_op_type < MAX_RSA_SYNC_TYPE ||

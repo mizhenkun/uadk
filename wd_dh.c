@@ -24,7 +24,7 @@ struct wd_dh_sess {
 	__u32 alg_type;
 	__u32 key_size;
 	struct wd_dtb g;
-	struct wd_dh_sess_setup setup;	
+	struct wd_dh_sess_setup setup;
 	struct sched_key key;
 };
 
@@ -109,7 +109,6 @@ static int init_global_ctx_setting(struct wd_ctx_config *cfg)
 		pthread_mutex_init(&ctxs[i].lock, NULL);
 	}
 
-	memcpy(ctxs, cfg->ctxs, cfg->ctx_num * sizeof(struct wd_ctx));
 	wd_dh_setting.config.ctxs = ctxs;
 
 	/* Can't copy with the size of priv structure. */
@@ -380,6 +379,7 @@ static int fill_dh_msg(struct wd_dh_msg *msg, struct wd_dh_req *req,
 {
 	memcpy(&msg->req, req, sizeof(*req));
 	msg->result = WD_EINVAL;
+	msg->key_bytes = sess->key_size;
 
 	if (req->op_type == WD_DH_PHASE1) {
 		msg->g = (__u8 *)sess->g.data;
@@ -388,7 +388,12 @@ static int fill_dh_msg(struct wd_dh_msg *msg, struct wd_dh_req *req,
 		msg->g = (__u8 *)req->pv;
 		msg->gbytes = req->pvbytes;
 	} else {
-		WD_ERR("op_type=%d error!\n", req->op_type);
+		WD_ERR("op_type=%hhu error!\n", req->op_type);
+		return -EINVAL;
+	}
+
+	if (unlikely(req->pri_bytes < sess->key_size)) {
+		WD_ERR("req pri bytes =%hu error!\n", req->pri_bytes);
 		return -EINVAL;
 	}
 
@@ -487,6 +492,7 @@ int wd_do_dh_sync(handle_t sess, struct wd_dh_req *req)
 		goto fail;
 
 	ret = dh_recv_sync(ctx->ctx, &msg);
+	req->pri_bytes = msg.req.pri_bytes;
 fail:
 	pthread_mutex_unlock(&ctx->lock);
 
