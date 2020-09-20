@@ -486,7 +486,7 @@ static struct wd_cipher_req* get_req_from_pool(struct wd_async_msg_pool *pool,
 
 	/* tag value start from 1 */
 	if (msg->tag == 0 || msg->tag > WD_POOL_MAX_ENTRIES) {
-		WD_ERR("invalid msg cache tag(%d)\n", msg->tag);
+		WD_ERR("invalid msg cache tag(%u)\n", msg->tag);
 		return NULL;
 	}
 	for (i = 0; i < g_wd_cipher_setting.config.ctx_num; i++) {
@@ -517,7 +517,7 @@ static void put_msg_to_pool(struct wd_async_msg_pool *pool,
 	int i;
 
 	if (msg->tag == 0 || msg->tag > WD_POOL_MAX_ENTRIES) {
-		WD_ERR("invalid msg cache idx(%d)\n", msg->tag);
+		WD_ERR("invalid msg cache idx(%u)\n", msg->tag);
 		return;
 	}
 	for (i = 0; i < g_wd_cipher_setting.config.ctx_num; i++) {

@@ -3,6 +3,10 @@
 #include <pthread.h>
 #include "../include/drv/wd_cipher_drv.h"
 #include "../include/drv/wd_digest_drv.h"
+#include "hisi_qm_udrv.h"
+#include "wd_cipher.h"
+#include "wd_digest.h"
+#include "wd.h"
 
 #define SEC_DIGEST_ALG_OFFSET	11
 #define WORD_ALIGNMENT_MASK	0x3
@@ -44,11 +48,6 @@
 #define AUTHTYPE_OFFSET		6
 #define MAC_LEN_OFFSET		5
 #define AUTH_ALG_OFFSET		11
-
-#include "hisi_qm_udrv.h"
-#include "wd.h"
-#include "wd_cipher.h"
-#include "wd_digest.h"
 
 enum C_ALG {
 	C_ALG_DES  = 0x0,
@@ -257,7 +256,7 @@ struct hisi_sec_sqe {
 	__u8 rca_key_frm;
 
 	__u8 iv_tls_ld;
-	
+
 	struct hisi_sec_sqe_type2 type2;
 };
 
@@ -287,7 +286,6 @@ static void sec_dump_bd(unsigned char *bd, unsigned int len)
 
 static void update_iv(struct wd_cipher_msg *msg)
 {
-
 }
 
 int hisi_sec_init(struct wd_ctx_config *config, void *priv)
@@ -564,7 +562,6 @@ int hisi_sec_cipher_recv(handle_t ctx, struct wd_cipher_msg *recv_msg)
 	if (ret < 0)
 		return ret;
 
-
 	parse_cipher_bd2(&sqe, recv_msg);
 	recv_msg->tag = sqe.type2.tag;
 
@@ -752,4 +749,3 @@ static struct wd_digest_driver hisi_digest_driver = {
 };
 
 WD_DIGEST_SET_DRIVER(hisi_digest_driver);
-

@@ -9,7 +9,7 @@
 #define DES3_3KEY_SIZE		(3 * DES_KEY_SIZE)
 #define MAX_CIPHER_KEY_SIZE	64
 
-#define MAX_HMAC_KEY_SIZE		128
+#define MAX_HMAC_KEY_SIZE	128
 #define WD_POOL_MAX_ENTRIES	1024
 #define DES_WEAK_KEY_NUM	4
 #define MAX_RETRY_COUNTS	200000000
@@ -277,7 +277,7 @@ static void put_msg_to_pool(struct wd_async_msg_pool *pool,
 	int i;
 
 	if (msg->tag < 0 || msg->tag >= WD_POOL_MAX_ENTRIES) {
-		WD_ERR("invalid msg cache idx(%d)\n", msg->tag);
+		WD_ERR("invalid msg cache idx(%u)\n", msg->tag);
 		return;
 	}
 	for (i = 0; i < g_wd_digest_setting.config.ctx_num; i++) {
@@ -287,7 +287,7 @@ static void put_msg_to_pool(struct wd_async_msg_pool *pool,
 		}
 	}
 	if (!found) {
-		WD_ERR("ctx handler not fonud!\n");
+		WD_ERR("faid to found ctx handler!\n");
 		return;
 	}
 
